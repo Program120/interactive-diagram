@@ -144,12 +144,4 @@ Contributions are welcome! Feel free to:
 
 ## License
 
-MIT
-
----
-
-<p align="center">
-  Built with ❤️ by <a href="https://github.com/Program120">Program120</a> & <a href="https://claude.ai">Claude</a>
-</p>
-</content>
-</invoke>
+[MIT](./LICENSE)
