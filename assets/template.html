@@ -49,9 +49,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .node-group{border:2px dashed #d9d9d9;border-radius:12px;padding:32px 16px 16px;background:rgba(255,255,255,.5);min-width:200px;min-height:150px}
 .node-group .group-title{position:absolute;top:8px;left:12px;font-size:11px;color:#8c8c8c;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 
-/* Edge labels */
-.edge-label{font-size:11px;fill:#666;pointer-events:none}
-.edge-label-bg{fill:#f0f2f5;rx:4;ry:4}
+/* Edge labels (HTML div, rendered above nodes) */
+.edge-labels-layer{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:3}
+.edge-label-div{position:absolute;font-size:11px;color:#666;background:#f0f2f5;padding:1px 6px;border-radius:4px;white-space:nowrap;pointer-events:none;transform:translate(-50%,-50%)}
 
 /* Zoom indicator */
 .zoom-indicator{position:fixed;bottom:16px;right:16px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:4px 10px;font-size:11px;color:#8c8c8c;z-index:99}
@@ -92,6 +92,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
         <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#722ed1"/></marker>
       </defs>
     </svg>
+    <div class="edge-labels-layer" id="edgeLabels"></div>
     <div class="empty-state" id="emptyState">
       <div class="icon">📊</div>
       <div class="text">等待图表数据...</div>
@@ -126,6 +127,7 @@ const emptyState = document.getElementById('emptyState');
 const statusEl = document.getElementById('status');
 const zoomEl = document.getElementById('zoomIndicator');
 const titleEl = document.getElementById('diagramTitle');
+const edgeLabelsEl = document.getElementById('edgeLabels');
 
 // ============================================================
 // Session ID from URL: ?s=mydiagram (default: "default")
@@ -430,10 +432,10 @@ function runLayout(immediate) {
 // Connection Rendering
 // ============================================================
 function renderConnections() {
-  // Remove old paths/labels (keep defs)
-  connSvg.querySelectorAll('path,text,rect').forEach(el => {
-    if (!el.closest('defs')) el.remove();
-  });
+  // Remove old SVG paths (keep defs)
+  connSvg.querySelectorAll('path').forEach(el => el.remove());
+  // Remove old HTML edge labels
+  edgeLabelsEl.innerHTML = '';
 
   state.edges.forEach(edge => {
     const src = state.nodes[edge.from];
@@ -474,26 +476,16 @@ function renderConnections() {
     path.setAttribute('marker-end', markerColor);
     connSvg.appendChild(path);
 
-    // Edge label
+    // Edge label as HTML div (z-index 3, above nodes)
     if (edge.label) {
       const mx = (sp.x + tp.x) / 2;
       const my = (sp.y + tp.y) / 2;
-      // Measure text width roughly (Chinese chars ~12px each, ASCII ~7px)
-      const textWidth = [...edge.label].reduce((w, c) => w + (c.charCodeAt(0) > 127 ? 12 : 7), 0);
-      const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      bg.setAttribute('class', 'edge-label-bg');
-      bg.setAttribute('x', mx - textWidth / 2 - 4);
-      bg.setAttribute('y', my - 9);
-      bg.setAttribute('width', textWidth + 8);
-      bg.setAttribute('height', 18);
-      connSvg.appendChild(bg);
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('class', 'edge-label');
-      text.setAttribute('x', mx);
-      text.setAttribute('y', my + 4);
-      text.setAttribute('text-anchor', 'middle');
-      text.textContent = edge.label;
-      connSvg.appendChild(text);
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'edge-label-div';
+      labelDiv.textContent = edge.label;
+      labelDiv.style.left = mx + 'px';
+      labelDiv.style.top = my + 'px';
+      edgeLabelsEl.appendChild(labelDiv);
     }
   });
 }
@@ -662,6 +654,7 @@ function clearDiagram() {
   state.nodes = {};
   state.edges = [];
   renderConnections();
+  edgeLabelsEl.innerHTML = '';
   emptyState.style.display = '';
   resetView();
 }
