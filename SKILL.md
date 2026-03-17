@@ -127,14 +127,14 @@ Service nodes support an `icon` field: `{"cmd":"node","id":"s1","label":"API Gat
 
 ## CRITICAL RULES for the Agent
 
-1. **BROWSER MUST BE OPEN BEFORE SENDING ANY COMMANDS.** Step 1 (start server + open browser) MUST be a separate Bash call that completes before Step 2. NEVER combine server start and diagram commands in a single Bash call. The user must see the browser page BEFORE nodes start appearing.
+1. **BROWSER MUST BE OPEN BEFORE SENDING COMMANDS TO A NEW SESSION.** For the first diagram or a new session (`?s=xxx`), Step 1 (start server + open browser) MUST be a separate Bash call that completes before Step 2. NEVER combine server start/browser open and diagram commands in a single Bash call. However, if replacing a diagram in an EXISTING session (browser tab already open), just send `init` directly — no need to re-open the browser.
 2. **Send nodes and edges INDIVIDUALLY** — one curl per node, one curl per edge. This creates the real-time incremental effect.
 3. **Keep commands minimal** — only include required fields. Don't add unnecessary whitespace in JSON.
 4. **Use descriptive IDs** — like `start`, `login`, `validate` instead of `n1`, `n2`, `n3`.
 5. **Auto-layout handles positioning** — do NOT specify `x` or `y` coordinates. Dagre calculates optimal positions.
 6. **Send init first** — always start with an `init` command to clear previous state and set the title.
 7. **Add all nodes before edges** — this produces better layout results. Send all node commands first, then all edge commands, then optionally a `layout` command.
-8. **Execution order MUST be**: Bash 1: start server + open browser → Bash 2: init + nodes + edges. Two separate tool calls, NOT one.
+8. **Execution order for NEW sessions**: Bash 1: start server + open browser → Bash 2: init + nodes + edges. Two separate tool calls, NOT one. For EXISTING sessions (browser already open): just send init + nodes + edges directly in one Bash call.
 
 ## Token Efficiency
 
