@@ -22,25 +22,39 @@ Each node and edge appears in the browser **in real-time** as the agent generate
 ```
 Agent sends curl commands (~30-50 tokens each)
   → Python SSE Server (scripts/server.py)
-    → Server-Sent Events push to browser
-      → template.html renders incrementally with Dagre auto-layout
+    → Server stores state + broadcasts via SSE
+      → template.html renders incrementally with Dagre auto-layout (CDN: dagre@0.8.5)
+    → GET /state returns full history (supports page refresh recovery)
 ```
+
+### Key Features
+- **Real-time incremental rendering**: Nodes/edges appear one by one as agent generates them
+- **Page refresh recovery**: Server stores all commands; refreshing the page replays full state
+- **Dagre auto-layout**: Uses the real dagre.js library (CDN) for proper hierarchical layout
+- **No scroll zoom**: Mouse wheel/trackpad does NOT zoom — only toolbar buttons control zoom
 
 ## Quick Start Workflow
 
-### Step 1: Start the server (if not running)
+**⚠️ CRITICAL ORDERING: Start server → Open browser → WAIT for page to load → THEN send commands.**
+**The user MUST see the browser page BEFORE any node/edge commands are sent, otherwise the real-time incremental effect is lost.**
 
-Check if server is already running:
+### Step 1: Start the server AND open browser FIRST
+
+This step MUST be a SEPARATE Bash call that completes BEFORE any diagram commands:
 ```bash
 curl -s http://127.0.0.1:6100/status 2>/dev/null || python3 ~/.claude/skills/interactive-diagram/scripts/server.py &
+sleep 1 && curl -s http://127.0.0.1:6100/status && open http://127.0.0.1:6100
 ```
 
-Wait briefly for server startup, then verify:
+For a new session (multiple diagrams):
 ```bash
-sleep 1 && curl -s http://127.0.0.1:6100/status
+open 'http://127.0.0.1:6100/?s=session_name'
 ```
 
-### Step 2: Initialize the diagram
+**IMPORTANT: Wait for Step 1 to complete (browser opened) before proceeding to Step 2.**
+**Do NOT combine server start + browser open + diagram commands in a single Bash call.**
+
+### Step 2: Initialize the diagram (SEPARATE Bash call)
 
 ```bash
 curl -s 127.0.0.1:6100/cmd -d '{"cmd":"init","title":"图表标题","direction":"TB"}'
@@ -50,6 +64,7 @@ Direction options: `TB` (top-bottom), `LR` (left-right), `BT` (bottom-top), `RL`
 
 ### Step 3: Add nodes one by one
 
+Send each node as an individual curl command. The user will see nodes appear in real-time:
 ```bash
 curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"n1","label":"开始","type":"terminal"}'
 curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"n2","label":"处理数据","type":"process"}'
@@ -112,18 +127,64 @@ Service nodes support an `icon` field: `{"cmd":"node","id":"s1","label":"API Gat
 
 ## CRITICAL RULES for the Agent
 
-1. **ALWAYS start the server first.** Check with `curl -s 127.0.0.1:6100/status` before sending commands.
+1. **BROWSER MUST BE OPEN BEFORE SENDING ANY COMMANDS.** Step 1 (start server + open browser) MUST be a separate Bash call that completes before Step 2. NEVER combine server start and diagram commands in a single Bash call. The user must see the browser page BEFORE nodes start appearing.
 2. **Send nodes and edges INDIVIDUALLY** — one curl per node, one curl per edge. This creates the real-time incremental effect.
 3. **Keep commands minimal** — only include required fields. Don't add unnecessary whitespace in JSON.
 4. **Use descriptive IDs** — like `start`, `login`, `validate` instead of `n1`, `n2`, `n3`.
 5. **Auto-layout handles positioning** — do NOT specify `x` or `y` coordinates. Dagre calculates optimal positions.
 6. **Send init first** — always start with an `init` command to clear previous state and set the title.
 7. **Add all nodes before edges** — this produces better layout results. Send all node commands first, then all edge commands, then optionally a `layout` command.
+8. **Execution order MUST be**: Bash 1: start server + open browser → Bash 2: init + nodes + edges. Two separate tool calls, NOT one.
 
 ## Token Efficiency
 
 Each curl command costs ~30-50 tokens. A 10-node flowchart uses ~500 tokens total.
 This is 90% less than generating a full HTML file (~4000+ tokens).
+
+## Server Lifecycle
+
+### Starting the server
+- Check if already running: `curl -s http://127.0.0.1:6100/status 2>/dev/null`
+- If not running, start in background: `python3 ~/.claude/skills/interactive-diagram/scripts/server.py &`
+- The server is very lightweight (~5MB memory), keep it running throughout the session
+- Do NOT stop the server between diagrams
+
+### Multiple diagrams in one session
+- Each diagram gets its own **session** via `?s=` URL parameter
+- Default session (no param) is `default`
+- To create a second diagram while keeping the first:
+  ```bash
+  # Diagram 1 (default session)
+  curl -s 127.0.0.1:6100/cmd -d '{"cmd":"init","title":"流程图"}'
+  # ... add nodes/edges ...
+
+  # Diagram 2 (separate session)
+  curl -s '127.0.0.1:6100/cmd?s=arch' -d '{"cmd":"init","title":"架构图"}'
+  # ... add nodes/edges to ?s=arch ...
+  open 'http://127.0.0.1:6100/?s=arch'  # opens in new tab
+  ```
+- To replace the current diagram (same session): just send `init` again — it clears previous state
+- List all sessions: `curl -s 127.0.0.1:6100/sessions`
+
+### Opening the browser
+- First diagram: `open http://127.0.0.1:6100` (default session)
+- Additional diagram: `open 'http://127.0.0.1:6100/?s=session_name'`
+- Only open browser when starting a NEW session, not when adding to an existing one
+
+## Server Endpoints
+
+All endpoints support `?s=SESSION_ID` query parameter (default: `default`).
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Serve the HTML template |
+| `/?s=NAME` | GET | Serve template for a specific session |
+| `/events` | GET | SSE event stream |
+| `/state` | GET | Return full command history (JSON array) |
+| `/status` | GET | Health check with session/client counts |
+| `/sessions` | GET | List all sessions with command counts |
+| `/cmd` | POST | Send a diagram command |
+| `/clear` | POST | Clear session state |
 
 ## Fallback
 

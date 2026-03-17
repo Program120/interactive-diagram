@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Interactive Diagram</title>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;overflow:hidden;height:100vh;width:100vw}
@@ -29,15 +30,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .connections{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
 
 /* Nodes */
-.node{position:absolute;z-index:2;cursor:move;transition:box-shadow .15s,transform .15s;user-select:none;opacity:0;animation:nodeIn .35s ease forwards}
+.node{position:absolute;z-index:2;cursor:move;transition:box-shadow .15s;user-select:none;opacity:0;animation:nodeIn .35s ease forwards}
 .node:hover{box-shadow:0 4px 16px rgba(0,0,0,.12)!important}
 .node.dragging{z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.18)!important;transition:box-shadow .1s}
+.node.no-animate{animation:none;opacity:1}
 @keyframes nodeIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
 
 /* Node types */
 .node-process{background:#fff;border:2px solid #4096ff;border-radius:8px;padding:12px 20px;text-align:center;color:#1a1a1a;font-size:13px;min-width:100px}
-.node-decision{background:#fff7e6;border:2px solid #faad14;width:120px;height:120px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center}
-.node-decision .inner{transform:rotate(-45deg);font-size:12px;color:#1a1a1a;text-align:center;padding:4px;line-height:1.3}
+.node-decision{background:#fff7e6;border:2px solid #faad14;padding:16px 24px;text-align:center;color:#1a1a1a;font-size:12px;line-height:1.3;clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);min-width:130px;min-height:80px;display:flex;align-items:center;justify-content:center}
 .node-terminal{background:linear-gradient(135deg,#52c41a,#73d13d);border:none;border-radius:24px;padding:10px 24px;text-align:center;color:#fff;font-size:13px;font-weight:500}
 .node-terminal-end{background:linear-gradient(135deg,#ff4d4f,#ff7875);border:none;border-radius:24px;padding:10px 24px;text-align:center;color:#fff;font-size:13px;font-weight:500}
 .node-service{background:#fff;border:2px solid #722ed1;border-radius:12px;padding:12px 20px;text-align:center;color:#1a1a1a;font-size:13px;min-width:100px}
@@ -87,6 +88,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
         <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#4096ff"/></marker>
         <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#52c41a"/></marker>
         <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ff4d4f"/></marker>
+        <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#faad14"/></marker>
+        <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#722ed1"/></marker>
       </defs>
     </svg>
     <div class="empty-state" id="emptyState">
@@ -101,189 +104,97 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 
 <script>
 // ============================================================
-// Dagre layout engine (minimal inline version)
-// Adapted from dagre v0.8.5 — directed graph layout for JavaScript
-// https://github.com/dagrejs/dagre (MIT License)
-// We embed a lightweight graph + layout implementation here.
-// ============================================================
-const Dagre=(function(){
-// Simple graph data structure
-class Graph{
-  constructor(){this._nodes={};this._edges={};this._edgeCount=0;this._nodeCount=0;this._label={}}
-  setGraph(l){this._label=l;return this}
-  graph(){return this._label}
-  setNode(id,label){if(!this._nodes[id])this._nodeCount++;this._nodes[id]=label||{};return this}
-  node(id){return this._nodes[id]}
-  nodes(){return Object.keys(this._nodes)}
-  setEdge(v,w,label){const key=v+'\x01'+w;if(!this._edges[key])this._edgeCount++;this._edges[key]={v,w,label:label||{}};return this}
-  edges(){return Object.values(this._edges)}
-  nodeCount(){return this._nodeCount}
-}
-
-// Simple layered layout algorithm
-function layout(g){
-  const graphLabel=g.graph()||{};
-  const rankdir=graphLabel.rankdir||'TB';
-  const nodesep=graphLabel.nodesep||50;
-  const ranksep=graphLabel.ranksep||80;
-  const marginx=graphLabel.marginx||40;
-  const marginy=graphLabel.marginy||40;
-  const isHorizontal=rankdir==='LR'||rankdir==='RL';
-
-  // Build adjacency
-  const nodeIds=g.nodes();
-  const adj={};const inDeg={};
-  nodeIds.forEach(n=>{adj[n]=[];inDeg[n]=0;});
-  g.edges().forEach(e=>{adj[e.v].push(e.w);inDeg[e.w]=(inDeg[e.w]||0)+1;});
-
-  // Topological sort for rank assignment
-  const ranks={};let queue=nodeIds.filter(n=>inDeg[n]===0);
-  if(queue.length===0&&nodeIds.length>0)queue=[nodeIds[0]];
-  let rank=0;const visited=new Set();
-  while(queue.length>0){
-    const next=[];
-    queue.forEach(n=>{
-      if(visited.has(n))return;
-      visited.add(n);
-      ranks[n]=rank;
-      adj[n].forEach(m=>{
-        inDeg[m]--;
-        if(inDeg[m]<=0&&!visited.has(m))next.push(m);
-      });
-    });
-    rank++;
-    queue=next;
-  }
-  // Assign remaining unvisited nodes
-  nodeIds.forEach(n=>{if(!visited.has(n)){ranks[n]=rank;visited.add(n);rank++;}});
-
-  // Group nodes by rank
-  const layers={};
-  nodeIds.forEach(n=>{
-    const r=ranks[n];
-    if(!layers[r])layers[r]=[];
-    layers[r].push(n);
-  });
-
-  // Minimize crossings (simple barycenter heuristic)
-  const sortedRanks=Object.keys(layers).map(Number).sort((a,b)=>a-b);
-  for(let pass=0;pass<4;pass++){
-    for(let i=1;i<sortedRanks.length;i++){
-      const prevLayer=layers[sortedRanks[i-1]];
-      const currLayer=layers[sortedRanks[i]];
-      const posInPrev={};
-      prevLayer.forEach((n,idx)=>posInPrev[n]=idx);
-      const bary={};
-      currLayer.forEach(n=>{
-        const parents=[];
-        g.edges().forEach(e=>{if(e.w===n&&posInPrev[e.v]!==undefined)parents.push(posInPrev[e.v]);});
-        bary[n]=parents.length>0?parents.reduce((a,b)=>a+b,0)/parents.length:Infinity;
-      });
-      currLayer.sort((a,b)=>(bary[a]||0)-(bary[b]||0));
-      layers[sortedRanks[i]]=currLayer;
-    }
-  }
-
-  // Assign coordinates
-  sortedRanks.forEach((r,ri)=>{
-    const layer=layers[r];
-    layer.forEach((n,ni)=>{
-      const nd=g.node(n);
-      const w=nd.width||120;
-      const h=nd.height||60;
-      if(isHorizontal){
-        nd.x=marginx+ri*(ranksep+w);
-        nd.y=marginy+ni*(nodesep+h);
-      }else{
-        nd.x=marginx+ni*(nodesep+w);
-        nd.y=marginy+ri*(ranksep+h);
-      }
-    });
-  });
-
-  // Center layers
-  let maxWidth=0;
-  if(!isHorizontal){
-    sortedRanks.forEach(r=>{
-      const layer=layers[r];
-      const last=layer[layer.length-1];
-      const nd=g.node(last);
-      const w=nd.x+(nd.width||120);
-      if(w>maxWidth)maxWidth=w;
-    });
-    sortedRanks.forEach(r=>{
-      const layer=layers[r];
-      const last=layer[layer.length-1];
-      const nd=g.node(last);
-      const layerWidth=nd.x+(nd.width||120)/2;
-      const offset=(maxWidth-layerWidth)/2;
-      if(offset>0)layer.forEach(n=>{g.node(n).x+=offset;});
-    });
-  }
-
-  // Calculate edge points
-  g.edges().forEach(e=>{
-    const src=g.node(e.v);
-    const tgt=g.node(e.w);
-    if(src&&tgt){
-      e.label.points=[
-        {x:src.x+(src.width||120)/2,y:src.y+(src.height||60)/2},
-        {x:tgt.x+(tgt.width||120)/2,y:tgt.y+(tgt.height||60)/2}
-      ];
-    }
-  });
-}
-
-return{Graph,layout};
-})();
-
-// ============================================================
 // Diagram State
 // ============================================================
-const state={
-  nodes:{},     // id -> {id,label,type,x,y,width,height,icon,group}
-  edges:[],     // [{from,to,label,color}]
-  direction:'TB',
-  scale:1,
-  panX:0,
-  panY:0,
+const state = {
+  nodes: {},     // id -> {id,label,type,x,y,width,height,icon,group}
+  edges: [],     // [{from,to,label,color}]
+  direction: 'TB',
+  scale: 1,
+  panX: 0,
+  panY: 0,
+  _layoutTimer: null,
+  _connTimer: null,
+  _isRestoring: false  // true during state restoration
 };
 
 // DOM refs
-const canvas=document.getElementById('canvas');
-const inner=document.getElementById('canvasInner');
-const connSvg=document.getElementById('connections');
-const emptyState=document.getElementById('emptyState');
-const statusEl=document.getElementById('status');
-const zoomEl=document.getElementById('zoomIndicator');
-const titleEl=document.getElementById('diagramTitle');
+const canvas = document.getElementById('canvas');
+const inner = document.getElementById('canvasInner');
+const connSvg = document.getElementById('connections');
+const emptyState = document.getElementById('emptyState');
+const statusEl = document.getElementById('status');
+const zoomEl = document.getElementById('zoomIndicator');
+const titleEl = document.getElementById('diagramTitle');
 
 // ============================================================
-// SSE Connection
+// Session ID from URL: ?s=mydiagram (default: "default")
 // ============================================================
-let evtSource=null;
-function connectSSE(){
-  evtSource=new EventSource('/events');
-  evtSource.onopen=()=>{statusEl.className='status connected';statusEl.textContent='已连接';};
-  evtSource.onerror=()=>{statusEl.className='status disconnected';statusEl.textContent='断开连接';setTimeout(connectSSE,2000);evtSource.close();};
-  evtSource.onmessage=(e)=>{
-    try{
-      const cmd=JSON.parse(e.data);
+const sessionId = new URLSearchParams(window.location.search).get('s') || 'default';
+const sessionParam = sessionId !== 'default' ? `?s=${encodeURIComponent(sessionId)}` : '';
+
+// Show session name in title if not default
+if (sessionId !== 'default') {
+  titleEl.textContent = `[${sessionId}] Interactive Diagram`;
+}
+
+// ============================================================
+// SSE Connection with State Recovery
+// ============================================================
+let evtSource = null;
+let sseReconnectTimer = null;
+
+async function connectSSE() {
+  // Step 1: Fetch existing state for refresh recovery
+  try {
+    const res = await fetch('/state' + sessionParam);
+    if (res.ok) {
+      const commands = await res.json();
+      if (commands.length > 0) {
+        state._isRestoring = true;
+        commands.forEach(cmd => handleCommand(cmd));
+        state._isRestoring = false;
+        // Run layout once after all commands replayed
+        runLayout(true); // true = immediate, skip debounce
+      }
+    }
+  } catch (e) {
+    console.log('No prior state to restore');
+  }
+
+  // Step 2: Connect SSE for incremental updates (session-scoped)
+  if (evtSource) { evtSource.close(); }
+  evtSource = new EventSource('/events' + sessionParam);
+  evtSource.onopen = () => {
+    statusEl.className = 'status connected';
+    statusEl.textContent = '已连接';
+    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
+  };
+  evtSource.onerror = () => {
+    statusEl.className = 'status disconnected';
+    statusEl.textContent = '断开连接';
+    evtSource.close();
+    sseReconnectTimer = setTimeout(connectSSE, 2000);
+  };
+  evtSource.onmessage = (e) => {
+    try {
+      const cmd = JSON.parse(e.data);
       handleCommand(cmd);
-    }catch(err){console.error('Invalid command:',e.data,err);}
+    } catch (err) { console.error('Invalid command:', e.data, err); }
   };
 }
+
 connectSSE();
 
 // ============================================================
 // Command Handler
 // ============================================================
-function handleCommand(cmd){
-  switch(cmd.cmd){
+function handleCommand(cmd) {
+  switch (cmd.cmd) {
     case 'init':
       clearDiagram();
-      if(cmd.title)titleEl.textContent=cmd.title;
-      if(cmd.direction)state.direction=cmd.direction;
+      if (cmd.title) titleEl.textContent = cmd.title;
+      if (cmd.direction) state.direction = cmd.direction;
       break;
     case 'node':
       addNode(cmd);
@@ -292,25 +203,25 @@ function handleCommand(cmd){
       addEdge(cmd);
       break;
     case 'layout':
-      runLayout();
+      if (!state._isRestoring) runLayout();
       break;
     case 'clear':
       clearDiagram();
       break;
     case 'title':
-      titleEl.textContent=cmd.text||'Interactive Diagram';
+      titleEl.textContent = cmd.text || 'Interactive Diagram';
       break;
     case 'batch':
-      if(cmd.nodes)cmd.nodes.forEach(n=>addNode(n));
-      if(cmd.edges)cmd.edges.forEach(e=>addEdge(e));
-      runLayout();
+      if (cmd.nodes) cmd.nodes.forEach(n => addNode(n));
+      if (cmd.edges) cmd.edges.forEach(e => addEdge(e));
+      if (!state._isRestoring) runLayout();
       break;
     case 'remove':
       removeNode(cmd.id);
       break;
     case 'export':
-      if(cmd.format==='png')exportPNG();
-      else if(cmd.format==='svg')exportSVG();
+      if (cmd.format === 'png') exportPNG();
+      else if (cmd.format === 'svg') exportSVG();
       else exportJSON();
       break;
   }
@@ -319,432 +230,482 @@ function handleCommand(cmd){
 // ============================================================
 // Node Management
 // ============================================================
-function addNode(cmd){
-  emptyState.style.display='none';
-  const id=cmd.id;
-  if(state.nodes[id]){
-    // update existing
-    Object.assign(state.nodes[id],cmd);
+function addNode(cmd) {
+  emptyState.style.display = 'none';
+  const id = cmd.id;
+  if (state.nodes[id]) {
+    Object.assign(state.nodes[id], cmd);
     updateNodeDOM(id);
     return;
   }
-  state.nodes[id]={
+  state.nodes[id] = {
     id,
-    label:cmd.label||id,
-    type:cmd.type||'process',
-    x:cmd.x||0, y:cmd.y||0,
-    width:0, height:0,
-    icon:cmd.icon||'',
-    group:cmd.group||''
+    label: cmd.label || id,
+    type: cmd.type || 'process',
+    x: 0, y: 0,
+    width: 0, height: 0,
+    icon: cmd.icon || '',
+    group: cmd.group || ''
   };
   createNodeDOM(id);
-  // Auto-layout after adding node
-  clearTimeout(state._layoutTimer);
-  state._layoutTimer=setTimeout(()=>runLayout(),80);
+  // Auto-layout after adding node (debounced), skip during restore
+  if (!state._isRestoring) {
+    clearTimeout(state._layoutTimer);
+    state._layoutTimer = setTimeout(() => runLayout(), 150);
+  }
 }
 
-function createNodeDOM(id){
-  const nd=state.nodes[id];
-  const el=document.createElement('div');
-  el.className='node';
-  el.id='node-'+id;
-  el.dataset.nodeId=id;
+function createNodeDOM(id) {
+  const nd = state.nodes[id];
+  const el = document.createElement('div');
+  el.className = 'node';
+  if (state._isRestoring) el.classList.add('no-animate');
+  el.id = 'node-' + id;
+  el.dataset.nodeId = id;
 
-  switch(nd.type){
+  switch (nd.type) {
     case 'terminal':
       el.classList.add('node-terminal');
-      el.textContent=nd.label;
+      el.textContent = nd.label;
       break;
     case 'terminal-end':
       el.classList.add('node-terminal-end');
-      el.textContent=nd.label;
+      el.textContent = nd.label;
       break;
     case 'process':
       el.classList.add('node-process');
-      el.textContent=nd.label;
+      el.textContent = nd.label;
       break;
     case 'decision':
       el.classList.add('node-decision');
-      el.innerHTML='<div class="inner">'+escHtml(nd.label)+'</div>';
+      el.textContent = nd.label;
       break;
     case 'service':
       el.classList.add('node-service');
-      el.innerHTML=(nd.icon?'<div class="icon">'+escHtml(nd.icon)+'</div>':'')+escHtml(nd.label);
+      el.innerHTML = (nd.icon ? '<div class="icon">' + escHtml(nd.icon) + '</div>' : '') + escHtml(nd.label);
       break;
     case 'database':
       el.classList.add('node-database');
-      el.textContent=nd.label;
+      el.textContent = nd.label;
       break;
     case 'success':
       el.classList.add('node-success');
-      el.textContent=nd.label;
+      el.textContent = nd.label;
       break;
     case 'error':
       el.classList.add('node-error');
-      el.textContent=nd.label;
+      el.textContent = nd.label;
       break;
     case 'group':
       el.classList.add('node-group');
-      el.innerHTML='<div class="group-title">'+escHtml(nd.label)+'</div>';
+      el.innerHTML = '<div class="group-title">' + escHtml(nd.label) + '</div>';
       break;
     default:
       el.classList.add('node-process');
-      el.textContent=nd.label;
+      el.textContent = nd.label;
   }
 
   inner.appendChild(el);
-  // Measure size after render
-  requestAnimationFrame(()=>{
-    const rect=el.getBoundingClientRect();
-    nd.width=rect.width/state.scale;
-    nd.height=rect.height/state.scale;
-    el.style.left=nd.x+'px';
-    el.style.top=nd.y+'px';
-  });
+  // Measure size synchronously by forcing layout
+  const rect = el.getBoundingClientRect();
+  nd.width = rect.width / state.scale;
+  nd.height = rect.height / state.scale;
+  // For decision nodes (diamond), make layout use larger bounding box
+  if (nd.type === 'decision') {
+    nd.width = Math.max(nd.width, 130);
+    nd.height = Math.max(nd.height, 80);
+  }
 
-  // Drag handlers
-  setupDrag(el,id);
+  setupDrag(el, id);
 }
 
-function updateNodeDOM(id){
-  const el=document.getElementById('node-'+id);
-  const nd=state.nodes[id];
-  if(!el||!nd)return;
-  if(nd.type!=='decision')el.textContent=nd.label;
-  else el.querySelector('.inner').textContent=nd.label;
+function updateNodeDOM(id) {
+  const el = document.getElementById('node-' + id);
+  const nd = state.nodes[id];
+  if (!el || !nd) return;
+  el.textContent = nd.label;
 }
 
-function removeNode(id){
-  const el=document.getElementById('node-'+id);
-  if(el)el.remove();
+function removeNode(id) {
+  const el = document.getElementById('node-' + id);
+  if (el) el.remove();
   delete state.nodes[id];
-  state.edges=state.edges.filter(e=>e.from!==id&&e.to!==id);
+  state.edges = state.edges.filter(e => e.from !== id && e.to !== id);
   renderConnections();
 }
 
 // ============================================================
 // Edge Management
 // ============================================================
-function addEdge(cmd){
-  state.edges.push({from:cmd.from,to:cmd.to,label:cmd.label||'',color:cmd.color||''});
-  clearTimeout(state._connTimer);
-  state._connTimer=setTimeout(()=>renderConnections(),50);
+function addEdge(cmd) {
+  // Avoid duplicate edges
+  const exists = state.edges.some(e => e.from === cmd.from && e.to === cmd.to);
+  if (exists) return;
+  state.edges.push({ from: cmd.from, to: cmd.to, label: cmd.label || '', color: cmd.color || '' });
+  if (!state._isRestoring) {
+    clearTimeout(state._connTimer);
+    state._connTimer = setTimeout(() => renderConnections(), 50);
+  }
 }
 
 // ============================================================
-// Dagre Layout
+// Dagre Layout (using real dagre.js from CDN)
 // ============================================================
-function runLayout(){
-  const g=new Dagre.Graph();
-  g.setGraph({rankdir:state.direction,nodesep:60,ranksep:100,marginx:60,marginy:60});
+function runLayout(immediate) {
+  if (typeof dagre === 'undefined') {
+    console.warn('dagre.js not loaded, skipping layout');
+    renderConnections();
+    return;
+  }
 
-  Object.values(state.nodes).forEach(nd=>{
-    g.setNode(nd.id,{width:nd.width||120,height:nd.height||60});
+  const nodeIds = Object.keys(state.nodes);
+  if (nodeIds.length === 0) return;
+
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({
+    rankdir: state.direction || 'TB',
+    nodesep: 80,
+    ranksep: 100,
+    marginx: 60,
+    marginy: 60,
+    edgesep: 30
   });
-  state.edges.forEach(e=>{
-    g.setEdge(e.from,e.to);
+  g.setDefaultEdgeLabel(() => ({}));
+
+  // Add nodes with measured dimensions
+  nodeIds.forEach(id => {
+    const nd = state.nodes[id];
+    g.setNode(id, {
+      width: nd.width || 120,
+      height: nd.height || 60
+    });
   });
 
-  Dagre.layout(g);
-
-  // Apply positions with smooth transition
-  g.nodes().forEach(nid=>{
-    const pos=g.node(nid);
-    const nd=state.nodes[nid];
-    if(!nd||!pos)return;
-    nd.x=pos.x;
-    nd.y=pos.y;
-    const el=document.getElementById('node-'+nid);
-    if(el){
-      el.style.transition='left .4s ease, top .4s ease';
-      el.style.left=pos.x+'px';
-      el.style.top=pos.y+'px';
-      setTimeout(()=>{el.style.transition='box-shadow .15s,transform .15s';},450);
+  // Add edges
+  state.edges.forEach(e => {
+    if (state.nodes[e.from] && state.nodes[e.to]) {
+      g.setEdge(e.from, e.to);
     }
   });
 
-  setTimeout(()=>renderConnections(),60);
-  setTimeout(()=>fitView(),500);
+  // Run dagre layout
+  dagre.layout(g);
+
+  // Apply positions - dagre returns CENTER coordinates, convert to top-left
+  nodeIds.forEach(id => {
+    const pos = g.node(id);
+    const nd = state.nodes[id];
+    if (!nd || !pos) return;
+    // Convert center to top-left
+    nd.x = pos.x - (nd.width || 120) / 2;
+    nd.y = pos.y - (nd.height || 60) / 2;
+    const el = document.getElementById('node-' + id);
+    if (el) {
+      if (state._isRestoring || immediate) {
+        // No animation during restore
+        el.style.left = nd.x + 'px';
+        el.style.top = nd.y + 'px';
+      } else {
+        el.style.transition = 'left .4s ease, top .4s ease';
+        el.style.left = nd.x + 'px';
+        el.style.top = nd.y + 'px';
+        setTimeout(() => { el.style.transition = 'box-shadow .15s'; }, 450);
+      }
+    }
+  });
+
+  // Render connections after positions are set
+  if (state._isRestoring || immediate) {
+    requestAnimationFrame(() => {
+      renderConnections();
+      fitView();
+    });
+  } else {
+    setTimeout(() => renderConnections(), 60);
+    setTimeout(() => fitView(), 500);
+  }
 }
 
 // ============================================================
 // Connection Rendering
 // ============================================================
-function renderConnections(){
-  // Remove old paths/labels
-  connSvg.querySelectorAll('path,text,rect').forEach(el=>{
-    if(!el.closest('defs'))el.remove();
+function renderConnections() {
+  // Remove old paths/labels (keep defs)
+  connSvg.querySelectorAll('path,text,rect').forEach(el => {
+    if (!el.closest('defs')) el.remove();
   });
 
-  state.edges.forEach(edge=>{
-    const src=state.nodes[edge.from];
-    const tgt=state.nodes[edge.to];
-    if(!src||!tgt)return;
+  state.edges.forEach(edge => {
+    const src = state.nodes[edge.from];
+    const tgt = state.nodes[edge.to];
+    if (!src || !tgt) return;
 
-    // Calculate connection points from node centers
-    const sx=src.x+(src.width||120)/2;
-    const sy=src.y+(src.height||60)/2;
-    const tx=tgt.x+(tgt.width||120)/2;
-    const ty=tgt.y+(tgt.height||60)/2;
+    // Calculate node centers
+    const sx = src.x + (src.width || 120) / 2;
+    const sy = src.y + (src.height || 60) / 2;
+    const tx = tgt.x + (tgt.width || 120) / 2;
+    const ty = tgt.y + (tgt.height || 60) / 2;
 
     // Find edge points on node boundaries
-    const sp=edgePoint(src,tx,ty);
-    const tp=edgePoint(tgt,sx,sy);
+    const sp = edgePoint(src, tx, ty);
+    const tp = edgePoint(tgt, sx, sy);
 
     // Bezier control points
-    const dx=tp.x-sp.x;
-    const dy=tp.y-sp.y;
-    let cx1,cy1,cx2,cy2;
-    if(state.direction==='TB'||state.direction==='BT'){
-      cx1=sp.x;cy1=sp.y+dy*0.4;
-      cx2=tp.x;cy2=tp.y-dy*0.4;
-    }else{
-      cx1=sp.x+dx*0.4;cy1=sp.y;
-      cx2=tp.x-dx*0.4;cy2=tp.y;
+    const dx = tp.x - sp.x;
+    const dy = tp.y - sp.y;
+    let cx1, cy1, cx2, cy2;
+    const isVertical = state.direction === 'TB' || state.direction === 'BT';
+    if (isVertical) {
+      cx1 = sp.x; cy1 = sp.y + dy * 0.5;
+      cx2 = tp.x; cy2 = tp.y - dy * 0.5;
+    } else {
+      cx1 = sp.x + dx * 0.5; cy1 = sp.y;
+      cx2 = tp.x - dx * 0.5; cy2 = tp.y;
     }
 
-    const markerColor=edge.color?'url(#arrow-'+edge.color+')':'url(#arrowhead)';
-    const strokeColor=edge.color?getColor(edge.color):'#8c8c8c';
+    const markerColor = edge.color ? 'url(#arrow-' + edge.color + ')' : 'url(#arrowhead)';
+    const strokeColor = edge.color ? getColor(edge.color) : '#8c8c8c';
 
-    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
-    path.setAttribute('d',`M${sp.x} ${sp.y} C${cx1} ${cy1}, ${cx2} ${cy2}, ${tp.x} ${tp.y}`);
-    path.setAttribute('stroke',strokeColor);
-    path.setAttribute('stroke-width','2');
-    path.setAttribute('fill','none');
-    path.setAttribute('marker-end',markerColor);
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M${sp.x} ${sp.y} C${cx1} ${cy1}, ${cx2} ${cy2}, ${tp.x} ${tp.y}`);
+    path.setAttribute('stroke', strokeColor);
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('marker-end', markerColor);
     connSvg.appendChild(path);
 
     // Edge label
-    if(edge.label){
-      const mx=(sp.x+tp.x)/2;
-      const my=(sp.y+tp.y)/2;
-      const bg=document.createElementNS('http://www.w3.org/2000/svg','rect');
-      bg.setAttribute('class','edge-label-bg');
-      bg.setAttribute('x',mx-edge.label.length*4-4);
-      bg.setAttribute('y',my-9);
-      bg.setAttribute('width',edge.label.length*8+8);
-      bg.setAttribute('height',18);
+    if (edge.label) {
+      const mx = (sp.x + tp.x) / 2;
+      const my = (sp.y + tp.y) / 2;
+      // Measure text width roughly (Chinese chars ~12px each, ASCII ~7px)
+      const textWidth = [...edge.label].reduce((w, c) => w + (c.charCodeAt(0) > 127 ? 12 : 7), 0);
+      const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      bg.setAttribute('class', 'edge-label-bg');
+      bg.setAttribute('x', mx - textWidth / 2 - 4);
+      bg.setAttribute('y', my - 9);
+      bg.setAttribute('width', textWidth + 8);
+      bg.setAttribute('height', 18);
       connSvg.appendChild(bg);
-      const text=document.createElementNS('http://www.w3.org/2000/svg','text');
-      text.setAttribute('class','edge-label');
-      text.setAttribute('x',mx);
-      text.setAttribute('y',my+4);
-      text.setAttribute('text-anchor','middle');
-      text.textContent=edge.label;
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('class', 'edge-label');
+      text.setAttribute('x', mx);
+      text.setAttribute('y', my + 4);
+      text.setAttribute('text-anchor', 'middle');
+      text.textContent = edge.label;
       connSvg.appendChild(text);
     }
   });
 }
 
-function edgePoint(node,targetX,targetY){
-  const cx=node.x+(node.width||120)/2;
-  const cy=node.y+(node.height||60)/2;
-  const w=(node.width||120)/2+4;
-  const h=(node.height||60)/2+4;
+function edgePoint(node, targetX, targetY) {
+  const cx = node.x + (node.width || 120) / 2;
+  const cy = node.y + (node.height || 60) / 2;
+  const w = (node.width || 120) / 2 + 4;
+  const h = (node.height || 60) / 2 + 4;
 
-  if(node.type==='decision'){
-    // Diamond shape — use diagonal boundaries
-    const dw=60+4,dh=60+4;// half of diamond
-    const dx=targetX-cx,dy=targetY-cy;
-    const adx=Math.abs(dx),ady=Math.abs(dy);
-    if(adx*dh>ady*dw){
-      const s=dx>0?1:-1;
-      return{x:cx+s*dw,y:cy+dy*(dw/adx)};
-    }else{
-      const s=dy>0?1:-1;
-      return{x:cx+dx*(dh/ady),y:cy+s*dh};
+  if (node.type === 'decision') {
+    // Diamond shape — clip-path polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)
+    const dw = (node.width || 130) / 2 + 4;
+    const dh = (node.height || 80) / 2 + 4;
+    const dx = targetX - cx, dy = targetY - cy;
+    const adx = Math.abs(dx), ady = Math.abs(dy);
+    if (adx === 0 && ady === 0) return { x: cx, y: cy - dh };
+    if (adx * dh > ady * dw) {
+      const s = dx > 0 ? 1 : -1;
+      return { x: cx + s * dw, y: cy + (adx > 0 ? dy * (dw / adx) : 0) };
+    } else {
+      const s = dy > 0 ? 1 : -1;
+      return { x: cx + (ady > 0 ? dx * (dh / ady) : 0), y: cy + s * dh };
     }
   }
 
   // Rectangle intersection
-  const dx=targetX-cx,dy=targetY-cy;
-  if(dx===0&&dy===0)return{x:cx,y:cy-h};
-  const adx=Math.abs(dx),ady=Math.abs(dy);
-  if(adx*h>ady*w){
-    const s=dx>0?1:-1;
-    return{x:cx+s*w,y:cy+dy*(w/adx)};
-  }else{
-    const s=dy>0?1:-1;
-    return{x:cx+dx*(h/ady),y:cy+s*h};
+  const dx = targetX - cx, dy = targetY - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy - h };
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  if (adx * h > ady * w) {
+    const s = dx > 0 ? 1 : -1;
+    return { x: cx + s * w, y: cy + (adx > 0 ? dy * (w / adx) : 0) };
+  } else {
+    const s = dy > 0 ? 1 : -1;
+    return { x: cx + (ady > 0 ? dx * (h / ady) : 0), y: cy + s * h };
   }
 }
 
-function getColor(c){
-  const m={'blue':'#4096ff','green':'#52c41a','red':'#ff4d4f','purple':'#722ed1','cyan':'#13c2c2','orange':'#faad14'};
-  return m[c]||c||'#8c8c8c';
+function getColor(c) {
+  const m = { 'blue': '#4096ff', 'green': '#52c41a', 'red': '#ff4d4f', 'purple': '#722ed1', 'cyan': '#13c2c2', 'orange': '#faad14' };
+  return m[c] || c || '#8c8c8c';
 }
 
 // ============================================================
 // Drag System
 // ============================================================
-let dragState=null;
-function setupDrag(el,id){
-  const start=(ex,ey)=>{
+let dragState = null;
+function setupDrag(el, id) {
+  const start = (ex, ey) => {
     el.classList.add('dragging');
-    const nd=state.nodes[id];
-    dragState={id,offsetX:ex/state.scale-nd.x,offsetY:ey/state.scale-nd.y};
+    const nd = state.nodes[id];
+    dragState = { id, offsetX: ex / state.scale - nd.x, offsetY: ey / state.scale - nd.y };
   };
-  el.addEventListener('mousedown',(e)=>{
-    if(e.button!==0)return;
-    e.preventDefault();e.stopPropagation();
-    const rect=inner.getBoundingClientRect();
-    start(e.clientX-rect.left,e.clientY-rect.top);
+  el.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const rect = inner.getBoundingClientRect();
+    start(e.clientX - rect.left, e.clientY - rect.top);
   });
-  el.addEventListener('touchstart',(e)=>{
+  el.addEventListener('touchstart', (e) => {
     e.stopPropagation();
-    const t=e.touches[0];
-    const rect=inner.getBoundingClientRect();
-    start(t.clientX-rect.left,t.clientY-rect.top);
-  },{passive:true});
+    const t = e.touches[0];
+    const rect = inner.getBoundingClientRect();
+    start(t.clientX - rect.left, t.clientY - rect.top);
+  }, { passive: true });
 }
 
-document.addEventListener('mousemove',(e)=>{
-  if(!dragState)return;
-  const rect=inner.getBoundingClientRect();
-  const nd=state.nodes[dragState.id];
-  nd.x=(e.clientX-rect.left)/state.scale-dragState.offsetX;
-  nd.y=(e.clientY-rect.top)/state.scale-dragState.offsetY;
-  const el=document.getElementById('node-'+dragState.id);
-  if(el){el.style.left=nd.x+'px';el.style.top=nd.y+'px';}
+document.addEventListener('mousemove', (e) => {
+  if (!dragState) return;
+  const rect = inner.getBoundingClientRect();
+  const nd = state.nodes[dragState.id];
+  nd.x = (e.clientX - rect.left) / state.scale - dragState.offsetX;
+  nd.y = (e.clientY - rect.top) / state.scale - dragState.offsetY;
+  const el = document.getElementById('node-' + dragState.id);
+  if (el) { el.style.left = nd.x + 'px'; el.style.top = nd.y + 'px'; }
   renderConnections();
 });
-document.addEventListener('mouseup',()=>{
-  if(dragState){
-    const el=document.getElementById('node-'+dragState.id);
-    if(el)el.classList.remove('dragging');
-    dragState=null;
+document.addEventListener('mouseup', () => {
+  if (dragState) {
+    const el = document.getElementById('node-' + dragState.id);
+    if (el) el.classList.remove('dragging');
+    dragState = null;
   }
 });
-document.addEventListener('touchmove',(e)=>{
-  if(!dragState)return;
-  const t=e.touches[0];
-  const rect=inner.getBoundingClientRect();
-  const nd=state.nodes[dragState.id];
-  nd.x=(t.clientX-rect.left)/state.scale-dragState.offsetX;
-  nd.y=(t.clientY-rect.top)/state.scale-dragState.offsetY;
-  const el=document.getElementById('node-'+dragState.id);
-  if(el){el.style.left=nd.x+'px';el.style.top=nd.y+'px';}
+document.addEventListener('touchmove', (e) => {
+  if (!dragState) return;
+  const t = e.touches[0];
+  const rect = inner.getBoundingClientRect();
+  const nd = state.nodes[dragState.id];
+  nd.x = (t.clientX - rect.left) / state.scale - dragState.offsetX;
+  nd.y = (t.clientY - rect.top) / state.scale - dragState.offsetY;
+  const el = document.getElementById('node-' + dragState.id);
+  if (el) { el.style.left = nd.x + 'px'; el.style.top = nd.y + 'px'; }
   renderConnections();
-},{passive:true});
-document.addEventListener('touchend',()=>{
-  if(dragState){
-    const el=document.getElementById('node-'+dragState.id);
-    if(el)el.classList.remove('dragging');
-    dragState=null;
+}, { passive: true });
+document.addEventListener('touchend', () => {
+  if (dragState) {
+    const el = document.getElementById('node-' + dragState.id);
+    if (el) el.classList.remove('dragging');
+    dragState = null;
   }
 });
 
 // ============================================================
 // Pan (drag canvas, NO scroll zoom)
 // ============================================================
-let panState=null;
-canvas.addEventListener('mousedown',(e)=>{
-  if(dragState)return;
-  if(e.target!==canvas&&e.target!==inner&&!e.target.classList.contains('connections'))return;
+let panState = null;
+canvas.addEventListener('mousedown', (e) => {
+  if (dragState) return;
+  if (e.target !== canvas && e.target !== inner && !e.target.classList.contains('connections')) return;
   canvas.classList.add('panning');
-  panState={startX:e.clientX-state.panX,startY:e.clientY-state.panY};
+  panState = { startX: e.clientX - state.panX, startY: e.clientY - state.panY };
 });
-document.addEventListener('mousemove',(e)=>{
-  if(!panState)return;
-  state.panX=e.clientX-panState.startX;
-  state.panY=e.clientY-panState.startY;
+document.addEventListener('mousemove', (e) => {
+  if (!panState) return;
+  state.panX = e.clientX - panState.startX;
+  state.panY = e.clientY - panState.startY;
   applyTransform();
 });
-document.addEventListener('mouseup',()=>{
-  if(panState){canvas.classList.remove('panning');panState=null;}
+document.addEventListener('mouseup', () => {
+  if (panState) { canvas.classList.remove('panning'); panState = null; }
 });
 
-function applyTransform(){
-  inner.style.transform=`translate(${state.panX}px,${state.panY}px) scale(${state.scale})`;
-  zoomEl.textContent=Math.round(state.scale*100)+'%';
+function applyTransform() {
+  inner.style.transform = `translate(${state.panX}px,${state.panY}px) scale(${state.scale})`;
+  zoomEl.textContent = Math.round(state.scale * 100) + '%';
 }
 
 // ============================================================
 // Zoom (buttons only, no scroll)
 // ============================================================
-function zoomIn(){state.scale=Math.min(3,state.scale*1.15);applyTransform();}
-function zoomOut(){state.scale=Math.max(0.2,state.scale/1.15);applyTransform();}
-function resetView(){state.scale=1;state.panX=0;state.panY=0;applyTransform();}
+function zoomIn() { state.scale = Math.min(3, state.scale * 1.15); applyTransform(); }
+function zoomOut() { state.scale = Math.max(0.2, state.scale / 1.15); applyTransform(); }
+function resetView() { state.scale = 1; state.panX = 0; state.panY = 0; applyTransform(); }
 
-function fitView(){
-  const nodes=Object.values(state.nodes);
-  if(nodes.length===0)return;
-  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-  nodes.forEach(n=>{
-    minX=Math.min(minX,n.x);
-    minY=Math.min(minY,n.y);
-    maxX=Math.max(maxX,n.x+(n.width||120));
-    maxY=Math.max(maxY,n.y+(n.height||60));
+function fitView() {
+  const nodes = Object.values(state.nodes);
+  if (nodes.length === 0) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  nodes.forEach(n => {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + (n.width || 120));
+    maxY = Math.max(maxY, n.y + (n.height || 60));
   });
-  const cw=canvas.clientWidth;
-  const ch=canvas.clientHeight;
-  const gw=maxX-minX+80;
-  const gh=maxY-minY+80;
-  const s=Math.min(cw/gw,ch/gh,1.5);
-  state.scale=Math.max(0.3,Math.min(s,1.5));
-  state.panX=(cw-gw*state.scale)/2-minX*state.scale+40*state.scale;
-  state.panY=(ch-gh*state.scale)/2-minY*state.scale+40*state.scale;
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  const gw = maxX - minX + 120;
+  const gh = maxY - minY + 120;
+  const s = Math.min(cw / gw, ch / gh, 1.5);
+  state.scale = Math.max(0.3, Math.min(s, 1.5));
+  state.panX = (cw - gw * state.scale) / 2 - minX * state.scale + 60 * state.scale;
+  state.panY = (ch - gh * state.scale) / 2 - minY * state.scale + 60 * state.scale;
   applyTransform();
 }
 
 // ============================================================
 // Clear
 // ============================================================
-function clearDiagram(){
-  Object.keys(state.nodes).forEach(id=>{
-    const el=document.getElementById('node-'+id);
-    if(el)el.remove();
+function clearDiagram() {
+  Object.keys(state.nodes).forEach(id => {
+    const el = document.getElementById('node-' + id);
+    if (el) el.remove();
   });
-  state.nodes={};
-  state.edges=[];
+  state.nodes = {};
+  state.edges = [];
   renderConnections();
-  emptyState.style.display='';
+  emptyState.style.display = '';
   resetView();
 }
 
 // ============================================================
 // Export
 // ============================================================
-function exportPNG(){
-  // Use html2canvas approach via foreignObject
-  const svgNS='http://www.w3.org/2000/svg';
-  const nodes=Object.values(state.nodes);
-  if(nodes.length===0)return;
-  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-  nodes.forEach(n=>{minX=Math.min(minX,n.x-10);minY=Math.min(minY,n.y-10);maxX=Math.max(maxX,n.x+(n.width||120)+10);maxY=Math.max(maxY,n.y+(n.height||60)+10);});
-  const w=maxX-minX+40;const h=maxY-minY+40;
-  const c=document.createElement('canvas');
-  c.width=w*2;c.height=h*2;
-  const ctx=c.getContext('2d');
-  ctx.scale(2,2);ctx.fillStyle='#f0f2f5';ctx.fillRect(0,0,w,h);
-
-  // Serialize inner HTML
-  const clone=inner.cloneNode(true);
+function exportPNG() {
+  const nodes = Object.values(state.nodes);
+  if (nodes.length === 0) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  nodes.forEach(n => { minX = Math.min(minX, n.x - 10); minY = Math.min(minY, n.y - 10); maxX = Math.max(maxX, n.x + (n.width || 120) + 10); maxY = Math.max(maxY, n.y + (n.height || 60) + 10); });
+  const w = maxX - minX + 40; const h = maxY - minY + 40;
+  const c = document.createElement('canvas');
+  c.width = w * 2; c.height = h * 2;
+  const ctx = c.getContext('2d');
+  ctx.scale(2, 2); ctx.fillStyle = '#f0f2f5'; ctx.fillRect(0, 0, w, h);
+  const clone = inner.cloneNode(true);
   clone.querySelector('.empty-state')?.remove();
-  clone.style.transform=`translate(${-minX+20}px,${-minY+20}px)`;
-  const data=new XMLSerializer().serializeToString(clone);
-  const svg=`<svg xmlns="${svgNS}" width="${w}" height="${h}"><foreignObject width="${w}" height="${h}"><div xmlns="http://www.w3.org/1999/xhtml">${data}</div></foreignObject></svg>`;
-  const img=new Image();
-  img.onload=()=>{ctx.drawImage(img,0,0);const a=document.createElement('a');a.download='diagram.png';a.href=c.toDataURL('image/png');a.click();};
-  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+  clone.style.transform = `translate(${-minX + 20}px,${-minY + 20}px)`;
+  const data = new XMLSerializer().serializeToString(clone);
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = `<svg xmlns="${svgNS}" width="${w}" height="${h}"><foreignObject width="${w}" height="${h}"><div xmlns="http://www.w3.org/1999/xhtml">${data}</div></foreignObject></svg>`;
+  const img = new Image();
+  img.onload = () => { ctx.drawImage(img, 0, 0); const a = document.createElement('a'); a.download = 'diagram.png'; a.href = c.toDataURL('image/png'); a.click(); };
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
-function exportSVG(){
-  const clone=connSvg.cloneNode(true);
-  const blob=new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'});
-  const a=document.createElement('a');a.download='diagram.svg';a.href=URL.createObjectURL(blob);a.click();
+function exportSVG() {
+  const clone = connSvg.cloneNode(true);
+  const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' });
+  const a = document.createElement('a'); a.download = 'diagram.svg'; a.href = URL.createObjectURL(blob); a.click();
 }
 
-function exportJSON(){
-  const data={nodes:Object.values(state.nodes),edges:state.edges,direction:state.direction};
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.download='diagram.json';a.href=URL.createObjectURL(blob);a.click();
+function exportJSON() {
+  const data = { nodes: Object.values(state.nodes), edges: state.edges, direction: state.direction };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.download = 'diagram.json'; a.href = URL.createObjectURL(blob); a.click();
 }
 
 // ============================================================
 // Util
 // ============================================================
-function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 </script>
 </body>
 </html>
