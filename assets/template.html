@@ -58,6 +58,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 
 /* Empty state */
 .empty-state{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#bfbfbf;z-index:1}
+
+/* Dropdown menu */
+.dropdown{position:relative;display:inline-block}
+.dropdown-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:200;min-width:140px;overflow:hidden}
+.dropdown-menu.show{display:block}
+.dropdown-menu button{display:block;width:100%;padding:8px 14px;border:none;background:none;text-align:left;font-size:12px;color:#555;cursor:pointer;white-space:nowrap}
+.dropdown-menu button:hover{background:#f0f5ff;color:#4096ff}
+.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;z-index:300;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
 .empty-state .icon{font-size:48px;margin-bottom:12px}
 .empty-state .text{font-size:14px}
 .empty-state .sub{font-size:12px;margin-top:4px;color:#d9d9d9}
@@ -76,6 +85,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   <button onclick="exportPNG()">导出 PNG</button>
   <button onclick="exportSVG()">导出 SVG</button>
   <button onclick="exportJSON()">导出 JSON</button>
+  <div class="dropdown">
+    <button onclick="toggleDrawioMenu(event)">导出 Draw.io ▾</button>
+    <div class="dropdown-menu" id="drawioMenu">
+      <button onclick="drawioDownload()">下载文件</button>
+      <button onclick="drawioCopy()">复制 XML</button>
+    </div>
+  </div>
 </div>
 
 <div class="status disconnected" id="status">断开连接</div>
@@ -224,6 +240,7 @@ function handleCommand(cmd) {
     case 'export':
       if (cmd.format === 'png') exportPNG();
       else if (cmd.format === 'svg') exportSVG();
+      else if (cmd.format === 'drawio') exportDrawio();
       else exportJSON();
       break;
   }
@@ -710,6 +727,92 @@ function exportJSON() {
   const data = { nodes: Object.values(state.nodes), edges: state.edges, direction: state.direction };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.download = 'diagram.json'; a.href = URL.createObjectURL(blob); a.click();
+}
+
+function generateDrawioXml() {
+  const nodes = Object.values(state.nodes);
+  if (nodes.length === 0) return null;
+  const styleMap = {
+    'terminal': 'ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
+    'terminal-end': 'ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;',
+    'process': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;',
+    'decision': 'rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;',
+    'service': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;',
+    'database': 'shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;',
+    'success': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
+    'error': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;',
+    'group': 'rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#666666;',
+  };
+  const defaultStyle = 'rounded=1;whiteSpace=wrap;html=1;';
+  let cellId = 2;
+  const nodeIdMap = {};
+  let cells = '';
+  nodes.forEach(n => {
+    const mid = cellId++;
+    nodeIdMap[n.id] = mid;
+    const style = styleMap[n.type] || defaultStyle;
+    const w = n.width || 120;
+    const h = n.height || 60;
+    const label = escHtml(n.label || '');
+    cells += `        <mxCell id="${mid}" value="${label}" style="${style}" vertex="1" parent="1">\n          <mxGeometry x="${Math.round(n.x)}" y="${Math.round(n.y)}" width="${w}" height="${h}" as="geometry" />\n        </mxCell>\n`;
+  });
+  state.edges.forEach(e => {
+    const mid = cellId++;
+    const src = nodeIdMap[e.from];
+    const tgt = nodeIdMap[e.to];
+    if (src === undefined || tgt === undefined) return;
+    const label = e.label ? ` value="${escHtml(e.label)}"` : '';
+    let style = 'edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;';
+    if (e.color) style += `strokeColor=${e.color};`;
+    cells += `        <mxCell id="${mid}"${label} style="${style}" edge="1" source="${src}" target="${tgt}" parent="1">\n          <mxGeometry relative="1" as="geometry" />\n        </mxCell>\n`;
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<mxfile>
+  <diagram name="Diagram">
+    <mxGraphModel>
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+${cells}      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>`;
+}
+
+function exportDrawio() { drawioDownload(); }
+
+function drawioDownload() {
+  const xml = generateDrawioXml();
+  if (!xml) return;
+  const blob = new Blob([xml], { type: 'application/xml' });
+  const a = document.createElement('a'); a.download = 'diagram.drawio'; a.href = URL.createObjectURL(blob); a.click();
+  closeDrawioMenu();
+}
+
+function drawioCopy() {
+  const xml = generateDrawioXml();
+  if (!xml) return;
+  navigator.clipboard.writeText(xml).then(() => showToast('已复制 XML 到剪贴板'));
+  closeDrawioMenu();
+}
+
+function toggleDrawioMenu(e) {
+  e.stopPropagation();
+  document.getElementById('drawioMenu').classList.toggle('show');
+}
+
+function closeDrawioMenu() {
+  document.getElementById('drawioMenu').classList.remove('show');
+}
+
+document.addEventListener('click', closeDrawioMenu);
+
+function showToast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1500);
 }
 
 // ============================================================

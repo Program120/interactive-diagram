@@ -123,7 +123,7 @@ Service nodes support an `icon` field: `{"cmd":"node","id":"s1","label":"API Gat
 | `title` | Change title | `{"cmd":"title","text":"New Title"}` |
 | `remove` | Remove a node | `{"cmd":"remove","id":"n1"}` |
 | `batch` | Add multiple at once | `{"cmd":"batch","nodes":[...],"edges":[...]}` |
-| `export` | Trigger export | `{"cmd":"export","format":"png"}` |
+| `export` | Trigger export | `{"cmd":"export","format":"png"}` (png/svg/json/drawio) |
 
 ## CRITICAL RULES for the Agent
 
