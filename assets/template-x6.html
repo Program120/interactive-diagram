@@ -163,7 +163,7 @@ function initGraph() {
     background: { color: '#f0f2f5' },
     grid: { visible: true, type: 'dot', size: 15, args: { color: '#ddd' } },
     panning: { enabled: true },
-    mousewheel: { enabled: true, zoomAtMousePosition: true, minScale: 0.2, maxScale: 3 },
+    mousewheel: { enabled: true, zoomAtMousePosition: true, minScale: 0.2, maxScale: 3, factor: 1.04 },
     connecting: {
       router: 'orth',
       connector: { name: 'rounded', args: { radius: 8 } },
@@ -189,7 +189,7 @@ function initGraph() {
   console.log('[diagram] graph created');
 
   // Plugins
-  graph.use(new X6PluginSelection.Selection({ enabled: true, multiple: true, rubberband: true, showNodeSelectionBox: true, showEdgeSelectionBox: true }));
+  graph.use(new X6PluginSelection.Selection({ enabled: true, multiple: true, rubberband: true, modifiers: 'shift', showNodeSelectionBox: true, showEdgeSelectionBox: true }));
   graph.use(new X6PluginHistory.History({ enabled: true }));
   graph.use(new X6PluginSnapline.Snapline({ enabled: true }));
   console.log('[diagram] plugins loaded');
@@ -578,6 +578,79 @@ function drawioCopy() {
 function toggleDrawioMenu(e) { e.stopPropagation(); document.getElementById('drawioMenu').classList.toggle('show'); }
 function closeDrawioMenu() { document.getElementById('drawioMenu').classList.remove('show'); }
 document.addEventListener('click', (e) => { if (!e.target.closest('.dropdown')) closeDrawioMenu(); });
+
+// ============================================================
+// Save as standalone HTML
+// ============================================================
+function saveAsHTML() {
+  const graphData = JSON.stringify(graph.toJSON());
+  const title = document.getElementById('diagramTitle').textContent;
+  const html = buildStandaloneHTML(title, graphData);
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.download = (title || 'diagram') + '.html';
+  a.href = URL.createObjectURL(blob);
+  a.click();
+}
+
+function buildStandaloneHTML(title, graphDataJSON) {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escHtml(title)}</title>
+<script src="https://unpkg.com/@antv/x6@2/dist/index.js"><\/script>
+<script src="https://unpkg.com/@antv/x6-plugin-selection@2/dist/index.js"><\/script>
+<script src="https://unpkg.com/@antv/x6-plugin-history@2/dist/index.js"><\/script>
+<script src="https://unpkg.com/@antv/x6-plugin-snapline@2/dist/index.js"><\/script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;overflow:hidden;height:100vh;width:100vw}
+.toolbar{position:fixed;top:0;left:0;right:0;height:48px;background:#fff;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 12px;z-index:100;gap:6px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.toolbar .title{font-size:15px;font-weight:600;color:#1a1a1a;margin-right:auto}
+.toolbar button{padding:5px 10px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;color:#555;font-size:12px;cursor:pointer;transition:all .15s}
+.toolbar button:hover{border-color:#4096ff;color:#4096ff;background:#f0f5ff}
+.toolbar .sep{width:1px;height:24px;background:#e8e8e8}
+#container{position:absolute;top:48px;left:0;right:0;bottom:0}
+.zoom-indicator{position:fixed;bottom:16px;right:16px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:4px 10px;font-size:11px;color:#8c8c8c;z-index:99}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span class="title">${escHtml(title)}</span>
+  <div class="sep"></div>
+  <button onclick="graph.zoom(0.15)">+ 放大</button>
+  <button onclick="graph.zoom(-0.15)">- 缩小</button>
+  <button onclick="graph.zoomTo(1);graph.centerContent()">重置视图</button>
+  <button onclick="graph.zoomToFit({padding:60,maxScale:1.5})">适应画布</button>
+</div>
+<div id="container"></div>
+<div class="zoom-indicator" id="zoomIndicator">100%</div>
+<script>
+var graphData = ${graphDataJSON};
+var container = document.getElementById('container');
+var graph = new X6.Graph({
+  container: container,
+  width: container.offsetWidth,
+  height: container.offsetHeight,
+  background: { color: '#f0f2f5' },
+  grid: { visible: true, type: 'dot', size: 15, args: { color: '#ddd' } },
+  panning: { enabled: true },
+  mousewheel: { enabled: true, zoomAtMousePosition: true, minScale: 0.2, maxScale: 3 },
+  connecting: { router: 'orth', connector: { name: 'rounded', args: { radius: 8 } } },
+});
+graph.use(new X6PluginSelection.Selection({ enabled: true, rubberband: true, showNodeSelectionBox: true, showEdgeSelectionBox: true }));
+graph.use(new X6PluginHistory.History({ enabled: true }));
+graph.use(new X6PluginSnapline.Snapline({ enabled: true }));
+graph.fromJSON(graphData);
+graph.on('scale', function() { document.getElementById('zoomIndicator').textContent = Math.round(graph.zoom() * 100) + '%'; });
+window.addEventListener('resize', function() { graph.resize(container.offsetWidth, container.offsetHeight); });
+setTimeout(function() { graph.zoomToFit({ padding: 60, maxScale: 1.5 }); }, 200);
+<\/script>
+</body>
+</html>`;
+}
 
 // ============================================================
 // Util
