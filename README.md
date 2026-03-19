@@ -60,8 +60,11 @@
 ## Installation
 
 ```bash
-# Install via Claude Code CLI
-claude skill install --url https://github.com/Program120/interactive-diagram
+# Install via npx (recommended)
+npx skills add https://github.com/Program120/interactive-diagram --skill interactive-diagram
+
+# Or manually clone to your skills directory
+git clone https://github.com/Program120/interactive-diagram ~/.claude/skills/interactive-diagram
 ```
 
 ## Usage
