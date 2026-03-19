@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Interactive Diagram</title>
+<script src="https://unpkg.com/@antv/x6@2/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-selection@2/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-history@2/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-snapline@2/dist/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;overflow:hidden;height:100vh;width:100vw}
+.toolbar{position:fixed;top:0;left:0;right:0;height:48px;background:#fff;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 12px;z-index:100;gap:6px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.toolbar .title{font-size:15px;font-weight:600;color:#1a1a1a;margin-right:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toolbar button{padding:5px 10px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;color:#555;font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.toolbar button:hover{border-color:#4096ff;color:#4096ff;background:#f0f5ff}
+.toolbar button:disabled{opacity:.4;cursor:not-allowed}
+.toolbar .sep{width:1px;height:24px;background:#e8e8e8;flex-shrink:0}
+.status{position:fixed;top:56px;right:16px;padding:4px 10px;border-radius:12px;font-size:11px;z-index:99;transition:all .3s}
+.status.connected{background:#f6ffed;color:#52c41a;border:1px solid #b7eb8f}
+.status.disconnected{background:#fff2f0;color:#ff4d4f;border:1px solid #ffccc7}
+#container{position:absolute;top:48px;left:0;right:0;bottom:0}
+.node-panel{position:fixed;top:56px;left:8px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:8px;z-index:99;box-shadow:0 2px 8px rgba(0,0,0,.08);display:flex;flex-direction:column;gap:4px;width:52px}
+.node-panel .panel-item{width:36px;height:36px;border:1px solid #e8e8e8;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.node-panel .panel-item:hover{border-color:#4096ff;background:#f0f5ff}
+.node-panel .panel-item .shape-icon{width:24px;height:24px}
+.context-menu{display:none;position:fixed;background:#fff;border:1px solid #e8e8e8;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:200;min-width:150px;overflow:hidden;padding:4px 0}
+.context-menu.show{display:block}
+.context-menu button{display:block;width:100%;padding:8px 16px;border:none;background:none;text-align:left;font-size:12px;color:#555;cursor:pointer;white-space:nowrap}
+.context-menu button:hover{background:#f0f5ff;color:#4096ff}
+.context-menu .menu-sep{height:1px;background:#e8e8e8;margin:4px 0}
+.dropdown{position:relative;display:inline-block}
+.dropdown-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:200;min-width:140px;overflow:hidden}
+.dropdown-menu.show{display:block}
+.dropdown-menu button{display:block;width:100%;padding:8px 14px;border:none;background:none;text-align:left;font-size:12px;color:#555;cursor:pointer;white-space:nowrap}
+.dropdown-menu button:hover{background:#f0f5ff;color:#4096ff}
+.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;z-index:300;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
+.zoom-indicator{position:fixed;bottom:16px;right:16px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:4px 10px;font-size:11px;color:#8c8c8c;z-index:99}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span class="title" id="diagramTitle">Interactive Diagram</span>
+  <div class="sep"></div>
+  <button id="btnUndo" onclick="doUndo()" disabled>↩ 撤销</button>
+  <button id="btnRedo" onclick="doRedo()" disabled>↪ 重做</button>
+  <div class="sep"></div>
+  <button onclick="zoomIn()">+ 放大</button>
+  <button onclick="zoomOut()">- 缩小</button>
+  <button onclick="resetView()">重置视图</button>
+  <button onclick="fitView()">适应画布</button>
+  <button onclick="autoLayout()">自动布局</button>
+  <div class="sep"></div>
+  <button onclick="exportPNG()">导出 PNG</button>
+  <button onclick="exportSVG()">导出 SVG</button>
+  <button onclick="exportJSON()">导出 JSON</button>
+  <div class="dropdown">
+    <button onclick="toggleDrawioMenu(event)">导出 Draw.io ▾</button>
+    <div class="dropdown-menu" id="drawioMenu">
+      <button onclick="drawioDownload()">下载文件</button>
+      <button onclick="drawioCopy()">复制 XML</button>
+    </div>
+  </div>
+</div>
+<div class="status disconnected" id="status">断开连接</div>
+<div class="node-panel" id="nodePanel">
+  <div class="panel-item" data-type="process" title="处理"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="#4096ff" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="decision" title="判断"><svg class="shape-icon" viewBox="0 0 24 24"><polygon points="12,2 22,12 12,22 2,12" fill="none" stroke="#faad14" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="terminal" title="开始"><svg class="shape-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="7" fill="none" stroke="#52c41a" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="terminal-end" title="结束"><svg class="shape-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="7" fill="none" stroke="#ff4d4f" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="service" title="服务"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="6" fill="none" stroke="#722ed1" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="database" title="数据库"><svg class="shape-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="9" ry="4" fill="none" stroke="#13c2c2" stroke-width="2"/><path d="M3 6v12c0 2.2 4 4 9 4s9-1.8 9-4V6" fill="none" stroke="#13c2c2" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="success" title="成功"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="#52c41a" stroke-width="2"/><polyline points="7,12 10,15 17,9" fill="none" stroke="#52c41a" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="error" title="失败"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="#ff4d4f" stroke-width="2"/><line x1="9" y1="9" x2="15" y2="15" stroke="#ff4d4f" stroke-width="2"/><line x1="15" y1="9" x2="9" y2="15" stroke="#ff4d4f" stroke-width="2"/></svg></div>
+</div>
+<div class="context-menu" id="contextMenu">
+  <button onclick="cmEdit()">编辑标签</button>
+  <button onclick="cmDuplicate()">复制节点</button>
+  <div class="menu-sep"></div>
+  <button onclick="cmDelete()" style="color:#ff4d4f">删除</button>
+</div>
+<div id="container"></div>
+<div class="zoom-indicator" id="zoomIndicator">100%</div>
+
+<script>
+// ============================================================
+// State & Config
+// ============================================================
+const state = { direction: 'TB', _isRestoring: false };
+let graph = null;
+let contextTarget = null;
+let clipboard = [];
+
+const NODE_TYPES = {
+  'process':      { width: 120, height: 50, body: { fill: '#fff', stroke: '#4096ff', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
+  'decision':     { width: 130, height: 70, body: { fill: '#fff7e6', stroke: '#faad14', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
+  'terminal':     { width: 100, height: 50, body: { fill: '#52c41a', stroke: '#389e0d', strokeWidth: 0, rx: 25, ry: 25 }, labelFill: '#fff' },
+  'terminal-end': { width: 100, height: 50, body: { fill: '#ff4d4f', stroke: '#cf1322', strokeWidth: 0, rx: 25, ry: 25 }, labelFill: '#fff' },
+  'service':      { width: 120, height: 50, body: { fill: '#fff', stroke: '#722ed1', strokeWidth: 2, rx: 12, ry: 12 }, labelFill: '#1a1a1a' },
+  'database':     { width: 120, height: 50, body: { fill: '#fff', stroke: '#13c2c2', strokeWidth: 2, rx: 4, ry: 4 }, labelFill: '#1a1a1a' },
+  'success':      { width: 120, height: 50, body: { fill: '#fff', stroke: '#52c41a', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
+  'error':        { width: 120, height: 50, body: { fill: '#fff', stroke: '#ff4d4f', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
+};
+
+const DEFAULT_LABELS = {
+  'process': '处理', 'decision': '判断?', 'terminal': '开始', 'terminal-end': '结束',
+  'service': '服务', 'database': '数据库', 'success': '成功', 'error': '失败',
+};
+
+// ============================================================
+// Build node config for X6 addNode
+// ============================================================
+function buildNodeConfig(id, type, label, x, y) {
+  const t = NODE_TYPES[type] || NODE_TYPES['process'];
+  const config = {
+    id: id,
+    shape: type === 'decision' ? 'polygon' : 'rect',
+    x: x || 0,
+    y: y || 0,
+    width: t.width,
+    height: t.height,
+    label: label || '',
+    attrs: {
+      body: { ...t.body },
+      label: { fontSize: 13, fill: t.labelFill, textWrap: { width: t.width - 20 } },
+    },
+    ports: {
+      groups: {
+        top:    { position: 'top',    attrs: { circle: { r: 4, magnet: true, stroke: '#ccc', strokeWidth: 1, fill: '#fff' } } },
+        bottom: { position: 'bottom', attrs: { circle: { r: 4, magnet: true, stroke: '#ccc', strokeWidth: 1, fill: '#fff' } } },
+        left:   { position: 'left',   attrs: { circle: { r: 4, magnet: true, stroke: '#ccc', strokeWidth: 1, fill: '#fff' } } },
+        right:  { position: 'right',  attrs: { circle: { r: 4, magnet: true, stroke: '#ccc', strokeWidth: 1, fill: '#fff' } } },
+      },
+      items: [
+        { group: 'top', id: 'pt' },
+        { group: 'bottom', id: 'pb' },
+        { group: 'left', id: 'pl' },
+        { group: 'right', id: 'pr' },
+      ],
+    },
+    data: { diagramType: type },
+  };
+  if (type === 'decision') {
+    config.attrs.body.refPoints = '0.5,0 1,0.5 0.5,1 0,0.5';
+  }
+  return config;
+}
+
+// ============================================================
+// Init Graph
+// ============================================================
+function initGraph() {
+  const container = document.getElementById('container');
+  console.log('[diagram] initGraph, container size:', container.offsetWidth, container.offsetHeight);
+
+  graph = new X6.Graph({
+    container: container,
+    width: container.offsetWidth,
+    height: container.offsetHeight,
+    background: { color: '#f0f2f5' },
+    grid: { visible: true, type: 'dot', size: 15, args: { color: '#ddd' } },
+    panning: { enabled: true },
+    mousewheel: { enabled: true, zoomAtMousePosition: true, minScale: 0.2, maxScale: 3 },
+    connecting: {
+      router: 'orth',
+      connector: { name: 'rounded', args: { radius: 8 } },
+      snap: { radius: 30 },
+      allowBlank: false,
+      allowLoop: false,
+      highlight: true,
+      createEdge() {
+        return graph.createEdge({
+          attrs: { line: { stroke: '#8c8c8c', strokeWidth: 2, targetMarker: { name: 'classic', size: 8 } } },
+        });
+      },
+      validateConnection({ sourceCell, targetCell }) {
+        return sourceCell !== targetCell;
+      },
+    },
+    highlighting: {
+      magnetAvailable: { name: 'stroke', args: { padding: 4, attrs: { strokeWidth: 2, stroke: '#47C769' } } },
+      magnetAdsorbed: { name: 'stroke', args: { padding: 4, attrs: { strokeWidth: 4, stroke: '#47C769' } } },
+    },
+  });
+
+  console.log('[diagram] graph created');
+
+  // Plugins
+  graph.use(new X6PluginSelection.Selection({ enabled: true, multiple: true, rubberband: true, showNodeSelectionBox: true, showEdgeSelectionBox: true }));
+  graph.use(new X6PluginHistory.History({ enabled: true }));
+  graph.use(new X6PluginSnapline.Snapline({ enabled: true }));
+  console.log('[diagram] plugins loaded');
+
+  // Port hover effect
+  graph.on('node:mouseenter', ({ node }) => {
+    const ports = node.getPorts();
+    ports.forEach(p => { node.setPortProp(p.id, 'attrs/circle/stroke', '#4096ff'); node.setPortProp(p.id, 'attrs/circle/r', 5); });
+  });
+  graph.on('node:mouseleave', ({ node }) => {
+    const ports = node.getPorts();
+    ports.forEach(p => { node.setPortProp(p.id, 'attrs/circle/stroke', '#ccc'); node.setPortProp(p.id, 'attrs/circle/r', 4); });
+  });
+
+  // Edge click to select + highlight
+  graph.on('edge:click', ({ edge }) => { graph.cleanSelection(); graph.select(edge); });
+  graph.on('edge:selected', ({ edge }) => {
+    edge._origStroke = edge.attr('line/stroke');
+    edge._origWidth = edge.attr('line/strokeWidth');
+    edge.attr('line/strokeWidth', 3);
+  });
+  graph.on('edge:unselected', ({ edge }) => {
+    edge.attr('line/strokeWidth', edge._origWidth || 2);
+  });
+
+  // Double-click edit node
+  graph.on('node:dblclick', ({ node }) => {
+    const text = node.attr('label/text') || '';
+    const newText = prompt('编辑标签', text);
+    if (newText !== null) node.attr('label/text', newText);
+  });
+
+  // Double-click edit edge
+  graph.on('edge:dblclick', ({ edge }) => {
+    const labels = edge.getLabels();
+    const text = labels.length > 0 ? (labels[0].attrs?.label?.text || '') : '';
+    const newText = prompt('编辑标签', text);
+    if (newText !== null) {
+      if (labels.length > 0) edge.setLabelAt(0, { attrs: { label: { text: newText } } });
+      else edge.appendLabel({ attrs: { label: { text: newText } } });
+    }
+  });
+
+  // Right-click context menu
+  graph.on('node:contextmenu', ({ node, e }) => {
+    e.preventDefault();
+    contextTarget = node;
+    showContextMenu(e.clientX, e.clientY);
+  });
+  graph.on('blank:click', hideContextMenu);
+  graph.on('blank:contextmenu', ({ e }) => { e.preventDefault(); hideContextMenu(); });
+
+  // Keyboard shortcuts (native, since bindKey requires keyboard plugin)
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); e.preventDefault(); }
+    else if (mod && e.key === 'z' && !e.shiftKey) { doUndo(); e.preventDefault(); }
+    else if (mod && e.key === 'z' && e.shiftKey) { doRedo(); e.preventDefault(); }
+    else if (mod && e.key === 'y') { doRedo(); e.preventDefault(); }
+    else if (mod && e.key === 'a') { graph.select(graph.getCells()); e.preventDefault(); }
+  });
+
+  // Undo/redo button state
+  graph.on('history:change', updateUndoRedo);
+
+  // Zoom indicator
+  graph.on('scale', () => {
+    document.getElementById('zoomIndicator').textContent = Math.round(graph.zoom() * 100) + '%';
+  });
+
+  // Resize
+  window.addEventListener('resize', () => { graph.resize(container.offsetWidth, container.offsetHeight); });
+
+  console.log('[diagram] event bindigs done');
+}
+
+function deleteSelected() {
+  const cells = graph.getSelectedCells();
+  if (cells.length > 0) graph.removeCells(cells);
+}
+
+// ============================================================
+// Undo / Redo
+// ============================================================
+function doUndo() { if (graph && graph.canUndo()) graph.undo(); }
+function doRedo() { if (graph && graph.canRedo()) graph.redo(); }
+function updateUndoRedo() {
+  document.getElementById('btnUndo').disabled = !graph.canUndo();
+  document.getElementById('btnRedo').disabled = !graph.canRedo();
+}
+
+// ============================================================
+// Zoom
+// ============================================================
+function zoomIn() { graph.zoom(0.15); }
+function zoomOut() { graph.zoom(-0.15); }
+function resetView() { graph.zoomTo(1); graph.centerContent(); }
+function fitView() { if (graph.getNodes().length > 0) graph.zoomToFit({ padding: 60, maxScale: 1.5 }); }
+
+// ============================================================
+// Auto layout with dagre
+// ============================================================
+function autoLayout() {
+  const nodes = graph.getNodes();
+  const edges = graph.getEdges();
+  if (nodes.length === 0) return;
+  console.log('[diagram] autoLayout:', nodes.length, 'nodes,', edges.length, 'edges');
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir: state.direction || 'TB', nodesep: 60, ranksep: 80, marginx: 40, marginy: 40 });
+  g.setDefaultEdgeLabel(() => ({}));
+  nodes.forEach(n => {
+    const size = n.getSize();
+    g.setNode(n.id, { width: size.width, height: size.height });
+  });
+  edges.forEach(e => {
+    const src = e.getSourceCellId();
+    const tgt = e.getTargetCellId();
+    if (src && tgt) g.setEdge(src, tgt);
+  });
+  dagre.layout(g);
+  graph.startBatch('layout');
+  nodes.forEach(n => {
+    const pos = g.node(n.id);
+    if (pos) n.position(pos.x - pos.width / 2, pos.y - pos.height / 2);
+  });
+  graph.stopBatch('layout');
+  setTimeout(() => fitView(), 100);
+}
+
+// ============================================================
+// Node panel click to add
+// ============================================================
+function setupNodePanel() {
+  document.querySelectorAll('.panel-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const type = item.dataset.type;
+      const label = DEFAULT_LABELS[type] || '节点';
+      const area = graph.getContentArea();
+      const cx = (area.x || 200) + Math.random() * 100;
+      const cy = (area.y || 200) + Math.random() * 100;
+      const config = buildNodeConfig('n_' + Date.now(), type, label, cx, cy);
+      graph.addNode(config);
+      console.log('[diagram] added node from panel:', type);
+    });
+  });
+}
+
+// ============================================================
+// Context menu
+// ============================================================
+function showContextMenu(x, y) {
+  const menu = document.getElementById('contextMenu');
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('show');
+}
+function hideContextMenu() {
+  document.getElementById('contextMenu').classList.remove('show');
+  contextTarget = null;
+}
+function cmEdit() {
+  if (!contextTarget) return;
+  const text = contextTarget.attr('label/text') || '';
+  const newText = prompt('编辑标签', text);
+  if (newText !== null) contextTarget.attr('label/text', newText);
+  hideContextMenu();
+}
+function cmDuplicate() {
+  if (!contextTarget) return;
+  const pos = contextTarget.getPosition();
+  const size = contextTarget.getSize();
+  const type = contextTarget.getData()?.diagramType || 'process';
+  const label = (contextTarget.attr('label/text') || '') + ' (副本)';
+  const config = buildNodeConfig('n_' + Date.now(), type, label, pos.x + 30, pos.y + 30);
+  graph.addNode(config);
+  hideContextMenu();
+}
+function cmDelete() {
+  if (!contextTarget) return;
+  graph.removeCell(contextTarget);
+  hideContextMenu();
+}
+
+// Close context menu on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.context-menu')) hideContextMenu();
+});
+
+// ============================================================
+// SSE Connection
+// ============================================================
+function connectSSE() {
+  const params = new URLSearchParams(window.location.search);
+  const session = params.get('s') || 'default';
+  const statusEl = document.getElementById('status');
+  console.log('[diagram] connecting SSE, session:', session);
+
+  // Restore state
+  fetch('/state?s=' + session)
+    .then(r => r.json())
+    .then(cmds => {
+      console.log('[diagram] restoring', cmds.length, 'commands');
+      state._isRestoring = true;
+      cmds.forEach(cmd => handleCommand(cmd));
+      state._isRestoring = false;
+      if (graph.getNodes().length > 0) autoLayout();
+    })
+    .catch(err => console.error('[diagram] restore error:', err));
+
+  // SSE stream
+  const es = new EventSource('/events?s=' + session);
+  es.onopen = () => {
+    statusEl.className = 'status connected';
+    statusEl.textContent = '已连接';
+    console.log('[diagram] SSE connected');
+  };
+  es.onerror = () => {
+    statusEl.className = 'status disconnected';
+    statusEl.textContent = '断开连接';
+    es.close();
+    setTimeout(() => connectSSE(), 2000);
+  };
+  es.onmessage = (e) => {
+    try {
+      const cmd = JSON.parse(e.data);
+      console.log('[diagram] SSE cmd:', cmd.cmd);
+      handleCommand(cmd);
+    } catch (err) { console.error('[diagram] SSE parse error:', err); }
+  };
+}
+
+// ============================================================
+// Handle SSE commands
+// ============================================================
+let layoutTimer = null;
+function handleCommand(cmd) {
+  try {
+    switch (cmd.cmd) {
+      case 'init':
+        graph.clearCells();
+        if (cmd.title) document.getElementById('diagramTitle').textContent = cmd.title;
+        if (cmd.direction) state.direction = cmd.direction;
+        break;
+      case 'node': {
+        const type = cmd.type || 'process';
+        const existing = graph.getCellById(cmd.id);
+        if (existing) {
+          if (cmd.label) existing.attr('label/text', cmd.label);
+        } else {
+          const config = buildNodeConfig(cmd.id, type, cmd.label || '', cmd.x || 0, cmd.y || 0);
+          graph.addNode(config);
+        }
+        if (!state._isRestoring) debounceLayout();
+        break;
+      }
+      case 'edge': {
+        // Smart port selection: for decision nodes with multiple outgoing edges, use left/right ports
+        let sourcePort = 'pb';
+        let targetPort = 'pt';
+        const sourceCell = graph.getCellById(cmd.from);
+        if (sourceCell && sourceCell.getData()?.diagramType === 'decision') {
+          const existingOutEdges = graph.getOutgoingEdges(sourceCell) || [];
+          const usedPorts = existingOutEdges.map(e => e.getSourcePortId());
+          if (!usedPorts.includes('pl')) sourcePort = 'pl';
+          else if (!usedPorts.includes('pr')) sourcePort = 'pr';
+          else sourcePort = 'pb';
+        }
+        const edgeConfig = {
+          source: { cell: cmd.from, port: sourcePort },
+          target: { cell: cmd.to, port: targetPort },
+          attrs: { line: { stroke: cmd.color || '#8c8c8c', strokeWidth: 2, targetMarker: { name: 'classic', size: 8 } } },
+        };
+        if (cmd.label) {
+          edgeConfig.labels = [{ attrs: { label: { text: cmd.label, fill: '#666', fontSize: 11 }, rect: { fill: '#f0f2f5', stroke: 'none' } } }];
+        }
+        graph.addEdge(edgeConfig);
+        break;
+      }
+      case 'remove': {
+        const cell = graph.getCellById(cmd.id);
+        if (cell) graph.removeCell(cell);
+        break;
+      }
+      case 'layout':
+        autoLayout();
+        break;
+      case 'clear':
+        graph.clearCells();
+        break;
+      case 'title':
+        if (cmd.text) document.getElementById('diagramTitle').textContent = cmd.text;
+        break;
+      case 'batch':
+        if (cmd.nodes) cmd.nodes.forEach(n => handleCommand({ cmd: 'node', ...n }));
+        if (cmd.edges) cmd.edges.forEach(e => handleCommand({ cmd: 'edge', ...e }));
+        autoLayout();
+        break;
+      case 'export':
+        if (cmd.format === 'png') exportPNG();
+        else if (cmd.format === 'svg') exportSVG();
+        else if (cmd.format === 'drawio') drawioDownload();
+        else exportJSON();
+        break;
+    }
+  } catch (err) {
+    console.error('[diagram] handleCommand error:', cmd, err);
+  }
+}
+
+function debounceLayout() {
+  clearTimeout(layoutTimer);
+  layoutTimer = setTimeout(() => autoLayout(), 300);
+}
+
+// ============================================================
+// Export
+// ============================================================
+function exportPNG() {
+  graph.toPNG((dataUri) => {
+    const a = document.createElement('a'); a.download = 'diagram.png'; a.href = dataUri; a.click();
+  }, { backgroundColor: '#f0f2f5', padding: 20 });
+}
+function exportSVG() {
+  graph.toSVG((svg) => {
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const a = document.createElement('a'); a.download = 'diagram.svg'; a.href = URL.createObjectURL(blob); a.click();
+  });
+}
+function exportJSON() {
+  const data = graph.toJSON();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.download = 'diagram.json'; a.href = URL.createObjectURL(blob); a.click();
+}
+
+function generateDrawioXml() {
+  const nodes = graph.getNodes();
+  if (nodes.length === 0) return null;
+  const drawioStyles = {
+    'terminal': 'ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
+    'terminal-end': 'ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;',
+    'process': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;',
+    'decision': 'rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;',
+    'service': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;',
+    'database': 'shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
+    'success': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
+    'error': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;',
+  };
+  let cellId = 2;
+  const idMap = {};
+  let cells = '';
+  nodes.forEach(n => {
+    const mid = cellId++;
+    idMap[n.id] = mid;
+    const type = n.getData()?.diagramType || 'process';
+    const style = drawioStyles[type] || 'rounded=1;whiteSpace=wrap;html=1;';
+    const pos = n.getPosition();
+    const size = n.getSize();
+    const label = escHtml(n.attr('label/text') || '');
+    cells += `        <mxCell id="${mid}" value="${label}" style="${style}" vertex="1" parent="1"><mxGeometry x="${Math.round(pos.x)}" y="${Math.round(pos.y)}" width="${size.width}" height="${size.height}" as="geometry"/></mxCell>\n`;
+  });
+  graph.getEdges().forEach(e => {
+    const mid = cellId++;
+    const src = idMap[e.getSourceCellId()];
+    const tgt = idMap[e.getTargetCellId()];
+    if (!src || !tgt) return;
+    const labels = e.getLabels();
+    const lt = labels.length > 0 ? labels[0].attrs?.label?.text : '';
+    const la = lt ? ` value="${escHtml(lt)}"` : '';
+    cells += `        <mxCell id="${mid}"${la} style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" source="${src}" target="${tgt}" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>\n`;
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<mxfile><diagram name="Diagram"><mxGraphModel><root>\n        <mxCell id="0"/>\n        <mxCell id="1" parent="0"/>\n${cells}</root></mxGraphModel></diagram></mxfile>`;
+}
+
+function drawioDownload() {
+  const xml = generateDrawioXml(); if (!xml) return;
+  const blob = new Blob([xml], { type: 'application/xml' });
+  const a = document.createElement('a'); a.download = 'diagram.drawio'; a.href = URL.createObjectURL(blob); a.click();
+  closeDrawioMenu();
+}
+function drawioCopy() {
+  const xml = generateDrawioXml(); if (!xml) return;
+  navigator.clipboard.writeText(xml).then(() => showToast('已复制 XML 到剪贴板'));
+  closeDrawioMenu();
+}
+function toggleDrawioMenu(e) { e.stopPropagation(); document.getElementById('drawioMenu').classList.toggle('show'); }
+function closeDrawioMenu() { document.getElementById('drawioMenu').classList.remove('show'); }
+document.addEventListener('click', (e) => { if (!e.target.closest('.dropdown')) closeDrawioMenu(); });
+
+// ============================================================
+// Util
+// ============================================================
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function showToast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1500);
+}
+
+// ============================================================
+// Boot
+// ============================================================
+window.addEventListener('DOMContentLoaded', () => {
+  console.log('[diagram] DOMContentLoaded, X6 version:', typeof X6 !== 'undefined' ? 'loaded' : 'MISSING');
+  initGraph();
+  setupNodePanel();
+  connectSSE();
+});
+</script>
+</body>
+</html>
