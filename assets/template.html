@@ -512,6 +512,9 @@ function handleCommand(cmd) {
         else if (cmd.format === 'drawio') drawioDownload();
         else exportJSON();
         break;
+      case 'export-to-server':
+        exportToServer(cmd.format, cmd.requestId);
+        break;
     }
   } catch (err) {
     console.error('[diagram] handleCommand error:', cmd, err);
@@ -541,6 +544,31 @@ function exportJSON() {
   const data = graph.toJSON();
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.download = 'diagram.json'; a.href = URL.createObjectURL(blob); a.click();
+}
+
+function exportToServer(format, requestId) {
+  const sendResult = (data, error) => {
+    fetch('/export-result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId, data, error }),
+    }).catch(err => console.error('[diagram] export-result POST failed:', err));
+  };
+  try {
+    if (format === 'png') {
+      graph.toPNG((dataUri) => { sendResult(dataUri, null); }, { backgroundColor: '#f0f2f5', padding: 20 });
+    } else if (format === 'svg') {
+      graph.toSVG((svg) => { sendResult(svg, null); });
+    } else if (format === 'drawio') {
+      const xml = generateDrawioXml();
+      sendResult(xml || '', xml ? null : 'No nodes to export');
+    } else {
+      const data = JSON.stringify(graph.toJSON(), null, 2);
+      sendResult(data, null);
+    }
+  } catch (err) {
+    sendResult(null, err.message || 'Export failed');
+  }
 }
 
 function generateDrawioXml() {

@@ -134,7 +134,35 @@ Service nodes support an `icon` field: `{"cmd":"node","id":"s1","label":"API Gat
 | `title` | Change title | `{"cmd":"title","text":"New Title"}` |
 | `remove` | Remove a node | `{"cmd":"remove","id":"n1"}` |
 | `batch` | Add multiple at once | `{"cmd":"batch","nodes":[...],"edges":[...]}` |
-| `export` | Trigger export | `{"cmd":"export","format":"png"}` (png/svg/json/drawio) |
+| `export` | Trigger browser download | `{"cmd":"export","format":"png"}` (png/svg/json/drawio) |
+
+### Server-Side Export (Save to Disk)
+
+Use the `/export` endpoint to export diagrams directly to a file on disk via curl. The server coordinates with the browser to generate the file and save it.
+
+```bash
+# Export as PNG
+curl -s 127.0.0.1:6100/export -d '{"format":"png","path":"/tmp/diagram.png"}'
+
+# Export as SVG
+curl -s 127.0.0.1:6100/export -d '{"format":"svg","path":"/tmp/diagram.svg"}'
+
+# Export as Draw.io
+curl -s 127.0.0.1:6100/export -d '{"format":"drawio","path":"/tmp/diagram.drawio"}'
+
+# Export as JSON
+curl -s 127.0.0.1:6100/export -d '{"format":"json","path":"/tmp/diagram.json"}'
+
+# Omit path to use default (/tmp/diagram-exports/diagram.{ext})
+curl -s 127.0.0.1:6100/export -d '{"format":"png"}'
+
+# Export from a specific session
+curl -s '127.0.0.1:6100/export?s=arch' -d '{"format":"drawio","path":"~/arch.drawio"}'
+```
+
+Supported formats: `png`, `svg`, `json`, `drawio`
+
+**Note:** The browser tab must be open for export to work — the browser generates the image/data and sends it back to the server for saving. The command blocks until the file is saved (timeout: 15s).
 
 ## CRITICAL RULES for the Agent
 
@@ -195,6 +223,7 @@ All endpoints support `?s=SESSION_ID` query parameter (default: `default`).
 | `/status` | GET | Health check with session/client counts |
 | `/sessions` | GET | List all sessions with command counts |
 | `/cmd` | POST | Send a diagram command |
+| `/export` | POST | Export diagram to file (server-side save) |
 | `/clear` | POST | Clear session state |
 
 ## Fallback

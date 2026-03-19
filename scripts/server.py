@@ -7,10 +7,12 @@ Supports multiple sessions: each session has independent state and SSE clients.
 - Default session "default" is used when ?s= is omitted.
 """
 
+import base64
 import json
 import queue
 import sys
 import threading
+import uuid
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
@@ -19,10 +21,15 @@ from urllib.parse import urlparse, parse_qs
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "template.html"
 STATE_DIR = Path("/tmp/diagram-sessions")
+EXPORT_DIR = Path("/tmp/diagram-exports")
 lock = threading.Lock()
 
 # Per-session storage: session_id -> {"state": [...], "clients": [Queue, ...]}
 sessions: dict[str, dict] = {}
+
+# Pending export requests: request_id -> threading.Event + result holder
+export_requests: dict[str, dict] = {}
+export_lock = threading.Lock()
 
 
 def _get_session(sid: str) -> dict:
@@ -96,6 +103,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_cmd(sid)
         elif path == "/clear":
             self._handle_clear(sid)
+        elif path == "/export":
+            self._handle_export(sid)
+        elif path == "/export-result":
+            self._handle_export_result()
         else:
             self.send_error(404)
 
@@ -218,6 +229,103 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
         self.wfile.write(b'{"ok":true}')
+
+
+    def _handle_export(self, sid: str):
+        """Handle export request: broadcast to browser, wait for result, save to disk."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode()
+        try:
+            params = json.loads(body)
+        except json.JSONDecodeError:
+            self.send_error(400, "Invalid JSON")
+            return
+
+        fmt = params.get("format", "png")
+        path = params.get("path", "")
+        if not path:
+            ext_map = {"png": "png", "svg": "svg", "json": "json", "drawio": "drawio"}
+            ext = ext_map.get(fmt, "png")
+            EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+            path = str(EXPORT_DIR / f"diagram.{ext}")
+
+        # Create a pending request with an event to wait on
+        req_id = str(uuid.uuid4())[:8]
+        event = threading.Event()
+        with export_lock:
+            export_requests[req_id] = {"event": event, "data": None, "error": None}
+
+        # Broadcast export command to browser
+        export_cmd = json.dumps({
+            "cmd": "export-to-server",
+            "format": fmt,
+            "requestId": req_id,
+        })
+        with lock:
+            sess = _get_session(sid)
+            for q in sess["clients"]:
+                q.put(export_cmd)
+
+        # Wait for browser to POST back the result (timeout 15s)
+        if not event.wait(timeout=15):
+            with export_lock:
+                export_requests.pop(req_id, None)
+            self._json_response(408, {"ok": False, "error": "Export timed out. Is the browser open?"})
+            return
+
+        with export_lock:
+            result = export_requests.pop(req_id, {})
+
+        if result.get("error"):
+            self._json_response(500, {"ok": False, "error": result["error"]})
+            return
+
+        # Save to disk
+        try:
+            data = result["data"]
+            out_path = Path(path).expanduser()
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            if fmt == "png":
+                # data is base64 data URI
+                b64 = data.split(",", 1)[1] if "," in data else data
+                out_path.write_bytes(base64.b64decode(b64))
+            else:
+                out_path.write_text(data, encoding="utf-8")
+            self._json_response(200, {"ok": True, "path": str(out_path), "format": fmt})
+        except Exception as e:
+            self._json_response(500, {"ok": False, "error": str(e)})
+
+    def _handle_export_result(self):
+        """Receive export data from browser."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode()
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            self.send_error(400, "Invalid JSON")
+            return
+
+        req_id = payload.get("requestId", "")
+        with export_lock:
+            req = export_requests.get(req_id)
+            if req:
+                req["data"] = payload.get("data")
+                req["error"] = payload.get("error")
+                req["event"].set()
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._cors()
+        self.end_headers()
+        self.wfile.write(b'{"ok":true}')
+
+    def _json_response(self, code: int, data: dict):
+        body = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
 
 
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
