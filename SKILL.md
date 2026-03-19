@@ -31,7 +31,7 @@ Agent sends curl commands (~30-50 tokens each)
 - **Real-time incremental rendering**: Nodes/edges appear one by one as agent generates them
 - **Page refresh recovery**: Server stores all commands; refreshing the page replays full state
 - **Dagre auto-layout**: Uses the real dagre.js library (CDN) for proper hierarchical layout
-- **No scroll zoom**: Mouse wheel/trackpad does NOT zoom — only toolbar buttons control zoom
+- **Scroll zoom**: Ctrl/Cmd+wheel or trackpad pinch to zoom, centered on cursor position
 
 ## Quick Start Workflow
 

@@ -616,8 +616,25 @@ function applyTransform() {
 }
 
 // ============================================================
-// Zoom (buttons only, no scroll)
+// Zoom (buttons + Ctrl/Cmd+wheel + trackpad pinch)
 // ============================================================
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const oldScale = state.scale;
+  // trackpad pinch sends ctrlKey + small deltaY; mouse wheel sends larger deltaY
+  // Normalize: clamp effective delta to smooth out big wheel jumps
+  const raw = e.ctrlKey ? e.deltaY * 3 : e.deltaY;
+  const clamped = Math.max(-30, Math.min(30, raw));
+  const factor = 1 - clamped * 0.008;
+  state.scale = Math.min(3, Math.max(0.2, oldScale * factor));
+  const ratio = state.scale / oldScale;
+  state.panX = mx - ratio * (mx - state.panX);
+  state.panY = my - ratio * (my - state.panY);
+  applyTransform();
+}, { passive: false });
 function zoomIn() { state.scale = Math.min(3, state.scale * 1.15); applyTransform(); }
 function zoomOut() { state.scale = Math.max(0.2, state.scale / 1.15); applyTransform(); }
 function resetView() { state.scale = 1; state.panX = 0; state.panY = 0; applyTransform(); }
