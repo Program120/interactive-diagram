@@ -23,7 +23,7 @@ Each node and edge appears in the browser **in real-time** as the agent generate
 Agent sends curl commands (~30-50 tokens each)
   → Python SSE Server (scripts/server.py)
     → Server stores state + broadcasts via SSE
-      → template.html renders incrementally with Dagre auto-layout (CDN: dagre@0.8.5)
+      → template.html renders with AntV X6 + Dagre auto-layout
     → GET /state returns full history (supports page refresh recovery)
 ```
 
@@ -31,7 +31,19 @@ Agent sends curl commands (~30-50 tokens each)
 - **Real-time incremental rendering**: Nodes/edges appear one by one as agent generates them
 - **Page refresh recovery**: Server stores all commands; refreshing the page replays full state
 - **Dagre auto-layout**: Uses the real dagre.js library (CDN) for proper hierarchical layout
-- **Scroll zoom**: Ctrl/Cmd+wheel or trackpad pinch to zoom, centered on cursor position
+- **AntV X6 rendering engine**: Professional diagram editor powered by X6 v2
+- **Interactive editing**: Users can edit diagrams directly in the browser after generation:
+  - Drag nodes to reposition
+  - Double-click to edit node/edge labels
+  - Right-click context menu (edit, duplicate, delete)
+  - Drag from ports to create new connections
+  - Shift+drag for rubber-band multi-select
+  - Delete/Backspace to remove selected elements
+  - Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo
+  - Snapline alignment guides
+  - Left panel to add new nodes by clicking
+- **Export**: PNG, SVG, JSON, Draw.io XML (download or copy to clipboard)
+- **Smooth zoom**: Mouse wheel / trackpad zoom centered on cursor
 
 ## Quick Start Workflow
 
@@ -90,15 +102,14 @@ curl -s 127.0.0.1:6100/cmd -d '{"cmd":"layout"}'
 
 | type | Appearance | Usage |
 |------|-----------|-------|
-| `terminal` | Green gradient oval | Start node |
-| `terminal-end` | Red gradient oval | End node |
+| `terminal` | Green ellipse | Start node |
+| `terminal-end` | Red ellipse | End node |
 | `process` | Blue-bordered rounded rect | Processing step |
 | `decision` | Yellow-bordered diamond | Branch/condition |
 | `service` | Purple-bordered rounded rect | Microservice/API |
-| `database` | Cyan-bordered rect with thick top | Database/storage |
+| `database` | Cyan-bordered rect with thick top bar | Database/storage |
 | `success` | Green-bordered rect | Success state |
 | `error` | Red-bordered rect | Error/failure state |
-| `group` | Dashed border container | Grouping |
 
 Service nodes support an `icon` field: `{"cmd":"node","id":"s1","label":"API Gateway","type":"service","icon":"🔀"}`
 

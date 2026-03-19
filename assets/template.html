@@ -4,62 +4,33 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Interactive Diagram</title>
+<script src="https://unpkg.com/@antv/x6@2/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-selection@2/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-history@2/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-snapline@2/dist/index.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;overflow:hidden;height:100vh;width:100vw}
-
-/* Toolbar */
-.toolbar{position:fixed;top:0;left:0;right:0;height:48px;background:#fff;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 16px;z-index:100;gap:8px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.toolbar{position:fixed;top:0;left:0;right:0;height:48px;background:#fff;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 12px;z-index:100;gap:6px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 .toolbar .title{font-size:15px;font-weight:600;color:#1a1a1a;margin-right:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.toolbar button{padding:6px 12px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;color:#555;font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.toolbar button{padding:5px 10px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;color:#555;font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
 .toolbar button:hover{border-color:#4096ff;color:#4096ff;background:#f0f5ff}
-.toolbar .sep{width:1px;height:24px;background:#e8e8e8}
-
-/* Status indicator */
+.toolbar button:disabled{opacity:.4;cursor:not-allowed}
+.toolbar .sep{width:1px;height:24px;background:#e8e8e8;flex-shrink:0}
 .status{position:fixed;top:56px;right:16px;padding:4px 10px;border-radius:12px;font-size:11px;z-index:99;transition:all .3s}
 .status.connected{background:#f6ffed;color:#52c41a;border:1px solid #b7eb8f}
 .status.disconnected{background:#fff2f0;color:#ff4d4f;border:1px solid #ffccc7}
-
-/* Canvas */
-.canvas{position:absolute;top:48px;left:0;right:0;bottom:0;overflow:hidden;cursor:grab}
-.canvas.panning{cursor:grabbing}
-.canvas-inner{position:absolute;transform-origin:0 0;min-width:5000px;min-height:5000px}
-
-/* SVG connections layer */
-.connections{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
-
-/* Nodes */
-.node{position:absolute;z-index:2;cursor:move;transition:box-shadow .15s;user-select:none;opacity:0;animation:nodeIn .35s ease forwards}
-.node:hover{box-shadow:0 4px 16px rgba(0,0,0,.12)!important}
-.node.dragging{z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.18)!important;transition:box-shadow .1s}
-.node.no-animate{animation:none;opacity:1}
-@keyframes nodeIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
-
-/* Node types */
-.node-process{background:#fff;border:2px solid #4096ff;border-radius:8px;padding:12px 20px;text-align:center;color:#1a1a1a;font-size:13px;min-width:100px}
-.node-decision{background:#fff7e6;border:2px solid #faad14;padding:16px 24px;text-align:center;color:#1a1a1a;font-size:12px;line-height:1.3;clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);min-width:130px;min-height:80px;display:flex;align-items:center;justify-content:center}
-.node-terminal{background:linear-gradient(135deg,#52c41a,#73d13d);border:none;border-radius:24px;padding:10px 24px;text-align:center;color:#fff;font-size:13px;font-weight:500}
-.node-terminal-end{background:linear-gradient(135deg,#ff4d4f,#ff7875);border:none;border-radius:24px;padding:10px 24px;text-align:center;color:#fff;font-size:13px;font-weight:500}
-.node-service{background:#fff;border:2px solid #722ed1;border-radius:12px;padding:12px 20px;text-align:center;color:#1a1a1a;font-size:13px;min-width:100px}
-.node-service .icon{font-size:20px;margin-bottom:4px}
-.node-database{background:#fff;border:2px solid #13c2c2;border-radius:8px;padding:12px 20px;text-align:center;color:#1a1a1a;font-size:13px;min-width:100px;border-top-width:6px}
-.node-success{background:#fff;border:2px solid #52c41a;border-radius:8px;padding:12px 20px;text-align:center;color:#1a1a1a;font-size:13px}
-.node-error{background:#fff;border:2px solid #ff4d4f;border-radius:8px;padding:12px 20px;text-align:center;color:#1a1a1a;font-size:13px}
-.node-group{border:2px dashed #d9d9d9;border-radius:12px;padding:32px 16px 16px;background:rgba(255,255,255,.5);min-width:200px;min-height:150px}
-.node-group .group-title{position:absolute;top:8px;left:12px;font-size:11px;color:#8c8c8c;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
-
-/* Edge labels (HTML div, rendered above nodes) */
-.edge-labels-layer{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:3}
-.edge-label-div{position:absolute;font-size:11px;color:#666;background:#f0f2f5;padding:1px 6px;border-radius:4px;white-space:nowrap;pointer-events:none;transform:translate(-50%,-50%)}
-
-/* Zoom indicator */
-.zoom-indicator{position:fixed;bottom:16px;right:16px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:4px 10px;font-size:11px;color:#8c8c8c;z-index:99}
-
-/* Empty state */
-.empty-state{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#bfbfbf;z-index:1}
-
-/* Dropdown menu */
+#container{position:absolute;top:48px;left:0;right:0;bottom:0}
+.node-panel{position:fixed;top:56px;left:8px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:8px;z-index:99;box-shadow:0 2px 8px rgba(0,0,0,.08);display:flex;flex-direction:column;gap:4px;width:52px}
+.node-panel .panel-item{width:36px;height:36px;border:1px solid #e8e8e8;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.node-panel .panel-item:hover{border-color:#4096ff;background:#f0f5ff}
+.node-panel .panel-item .shape-icon{width:24px;height:24px}
+.context-menu{display:none;position:fixed;background:#fff;border:1px solid #e8e8e8;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:200;min-width:150px;overflow:hidden;padding:4px 0}
+.context-menu.show{display:block}
+.context-menu button{display:block;width:100%;padding:8px 16px;border:none;background:none;text-align:left;font-size:12px;color:#555;cursor:pointer;white-space:nowrap}
+.context-menu button:hover{background:#f0f5ff;color:#4096ff}
+.context-menu .menu-sep{height:1px;background:#e8e8e8;margin:4px 0}
 .dropdown{position:relative;display:inline-block}
 .dropdown-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:200;min-width:140px;overflow:hidden}
 .dropdown-menu.show{display:block}
@@ -67,20 +38,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .dropdown-menu button:hover{background:#f0f5ff;color:#4096ff}
 .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;z-index:300;opacity:0;transition:opacity .3s}
 .toast.show{opacity:1}
-.empty-state .icon{font-size:48px;margin-bottom:12px}
-.empty-state .text{font-size:14px}
-.empty-state .sub{font-size:12px;margin-top:4px;color:#d9d9d9}
+.zoom-indicator{position:fixed;bottom:16px;right:16px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:4px 10px;font-size:11px;color:#8c8c8c;z-index:99}
 </style>
 </head>
 <body>
-
 <div class="toolbar">
   <span class="title" id="diagramTitle">Interactive Diagram</span>
+  <div class="sep"></div>
+  <button id="btnUndo" onclick="doUndo()" disabled>↩ 撤销</button>
+  <button id="btnRedo" onclick="doRedo()" disabled>↪ 重做</button>
   <div class="sep"></div>
   <button onclick="zoomIn()">+ 放大</button>
   <button onclick="zoomOut()">- 缩小</button>
   <button onclick="resetView()">重置视图</button>
   <button onclick="fitView()">适应画布</button>
+  <button onclick="autoLayout()">自动布局</button>
   <div class="sep"></div>
   <button onclick="exportPNG()">导出 PNG</button>
   <button onclick="exportSVG()">导出 SVG</button>
@@ -93,732 +65,558 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
     </div>
   </div>
 </div>
-
 <div class="status disconnected" id="status">断开连接</div>
-
-<div class="canvas" id="canvas">
-  <div class="canvas-inner" id="canvasInner">
-    <svg class="connections" id="connections">
-      <defs>
-        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#8c8c8c"/></marker>
-        <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#4096ff"/></marker>
-        <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#52c41a"/></marker>
-        <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ff4d4f"/></marker>
-        <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#faad14"/></marker>
-        <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#722ed1"/></marker>
-      </defs>
-    </svg>
-    <div class="edge-labels-layer" id="edgeLabels"></div>
-    <div class="empty-state" id="emptyState">
-      <div class="icon">📊</div>
-      <div class="text">等待图表数据...</div>
-      <div class="sub">Agent 正在生成中，节点将逐个出现</div>
-    </div>
-  </div>
+<div class="node-panel" id="nodePanel">
+  <div class="panel-item" data-type="process" title="处理"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="#4096ff" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="decision" title="判断"><svg class="shape-icon" viewBox="0 0 24 24"><polygon points="12,2 22,12 12,22 2,12" fill="none" stroke="#faad14" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="terminal" title="开始"><svg class="shape-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="7" fill="none" stroke="#52c41a" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="terminal-end" title="结束"><svg class="shape-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="7" fill="none" stroke="#ff4d4f" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="service" title="服务"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="6" fill="none" stroke="#722ed1" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="database" title="数据库"><svg class="shape-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="9" ry="4" fill="none" stroke="#13c2c2" stroke-width="2"/><path d="M3 6v12c0 2.2 4 4 9 4s9-1.8 9-4V6" fill="none" stroke="#13c2c2" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="success" title="成功"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="#52c41a" stroke-width="2"/><polyline points="7,12 10,15 17,9" fill="none" stroke="#52c41a" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="error" title="失败"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="#ff4d4f" stroke-width="2"/><line x1="9" y1="9" x2="15" y2="15" stroke="#ff4d4f" stroke-width="2"/><line x1="15" y1="9" x2="9" y2="15" stroke="#ff4d4f" stroke-width="2"/></svg></div>
 </div>
-
+<div class="context-menu" id="contextMenu">
+  <button onclick="cmEdit()">编辑标签</button>
+  <button onclick="cmDuplicate()">复制节点</button>
+  <div class="menu-sep"></div>
+  <button onclick="cmDelete()" style="color:#ff4d4f">删除</button>
+</div>
+<div id="container"></div>
 <div class="zoom-indicator" id="zoomIndicator">100%</div>
 
 <script>
 // ============================================================
-// Diagram State
+// State & Config
 // ============================================================
-const state = {
-  nodes: {},     // id -> {id,label,type,x,y,width,height,icon,group}
-  edges: [],     // [{from,to,label,color}]
-  direction: 'TB',
-  scale: 1,
-  panX: 0,
-  panY: 0,
-  _layoutTimer: null,
-  _connTimer: null,
-  _isRestoring: false  // true during state restoration
+const state = { direction: 'TB', _isRestoring: false };
+let graph = null;
+let contextTarget = null;
+let clipboard = [];
+
+const NODE_TYPES = {
+  'process':      { width: 120, height: 50, body: { fill: '#fff', stroke: '#4096ff', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
+  'decision':     { width: 130, height: 70, body: { fill: '#fff7e6', stroke: '#faad14', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
+  'terminal':     { width: 100, height: 50, body: { fill: '#52c41a', stroke: '#389e0d', strokeWidth: 0, rx: 25, ry: 25 }, labelFill: '#fff' },
+  'terminal-end': { width: 100, height: 50, body: { fill: '#ff4d4f', stroke: '#cf1322', strokeWidth: 0, rx: 25, ry: 25 }, labelFill: '#fff' },
+  'service':      { width: 120, height: 50, body: { fill: '#fff', stroke: '#722ed1', strokeWidth: 2, rx: 12, ry: 12 }, labelFill: '#1a1a1a' },
+  'database':     { width: 120, height: 50, body: { fill: '#fff', stroke: '#13c2c2', strokeWidth: 2, rx: 4, ry: 4 }, labelFill: '#1a1a1a' },
+  'success':      { width: 120, height: 50, body: { fill: '#fff', stroke: '#52c41a', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
+  'error':        { width: 120, height: 50, body: { fill: '#fff', stroke: '#ff4d4f', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
 };
 
-// DOM refs
-const canvas = document.getElementById('canvas');
-const inner = document.getElementById('canvasInner');
-const connSvg = document.getElementById('connections');
-const emptyState = document.getElementById('emptyState');
-const statusEl = document.getElementById('status');
-const zoomEl = document.getElementById('zoomIndicator');
-const titleEl = document.getElementById('diagramTitle');
-const edgeLabelsEl = document.getElementById('edgeLabels');
+const DEFAULT_LABELS = {
+  'process': '处理', 'decision': '判断?', 'terminal': '开始', 'terminal-end': '结束',
+  'service': '服务', 'database': '数据库', 'success': '成功', 'error': '失败',
+};
 
 // ============================================================
-// Session ID from URL: ?s=mydiagram (default: "default")
+// Build node config for X6 addNode
 // ============================================================
-const sessionId = new URLSearchParams(window.location.search).get('s') || 'default';
-const sessionParam = sessionId !== 'default' ? `?s=${encodeURIComponent(sessionId)}` : '';
+function buildNodeConfig(id, type, label, x, y) {
+  const t = NODE_TYPES[type] || NODE_TYPES['process'];
+  let shape = 'rect';
+  if (type === 'decision') shape = 'polygon';
+  else if (type === 'terminal' || type === 'terminal-end') shape = 'ellipse';
 
-// Show session name in title if not default
-if (sessionId !== 'default') {
-  titleEl.textContent = `[${sessionId}] Interactive Diagram`;
+  const config = {
+    id: id,
+    shape: shape,
+    x: x || 0,
+    y: y || 0,
+    width: t.width,
+    height: t.height,
+    label: label || '',
+    attrs: {
+      body: { ...t.body },
+      label: { fontSize: 13, fill: t.labelFill, textWrap: { width: t.width - 20 } },
+    },
+    ports: {
+      groups: {
+        top:    { position: 'top',    attrs: { circle: { r: 4, magnet: true, stroke: '#ccc', strokeWidth: 1, fill: '#fff' } } },
+        bottom: { position: 'bottom', attrs: { circle: { r: 4, magnet: true, stroke: '#ccc', strokeWidth: 1, fill: '#fff' } } },
+        left:   { position: 'left',   attrs: { circle: { r: 4, magnet: true, stroke: '#ccc', strokeWidth: 1, fill: '#fff' } } },
+        right:  { position: 'right',  attrs: { circle: { r: 4, magnet: true, stroke: '#ccc', strokeWidth: 1, fill: '#fff' } } },
+      },
+      items: [
+        { group: 'top', id: 'pt' },
+        { group: 'bottom', id: 'pb' },
+        { group: 'left', id: 'pl' },
+        { group: 'right', id: 'pr' },
+      ],
+    },
+    data: { diagramType: type },
+  };
+  if (type === 'decision') {
+    config.attrs.body.refPoints = '0.5,0 1,0.5 0.5,1 0,0.5';
+  }
+  if (type === 'database') {
+    // Custom cylinder markup for database
+    config.shape = 'rect';
+    config.markup = [
+      { tagName: 'rect', selector: 'body' },
+      { tagName: 'rect', selector: 'topBar' },
+      { tagName: 'text', selector: 'label' },
+    ];
+    config.attrs.topBar = {
+      refWidth: '100%', height: 8, fill: '#13c2c2', stroke: '#13c2c2', rx: 4, ry: 4,
+    };
+    config.attrs.body.rx = 4;
+    config.attrs.body.ry = 4;
+  }
+  return config;
 }
 
 // ============================================================
-// SSE Connection with State Recovery
+// Init Graph
 // ============================================================
-let evtSource = null;
-let sseReconnectTimer = null;
+function initGraph() {
+  const container = document.getElementById('container');
+  console.log('[diagram] initGraph, container size:', container.offsetWidth, container.offsetHeight);
 
-async function connectSSE() {
-  // Step 1: Fetch existing state for refresh recovery
-  try {
-    const res = await fetch('/state' + sessionParam);
-    if (res.ok) {
-      const commands = await res.json();
-      if (commands.length > 0) {
-        state._isRestoring = true;
-        commands.forEach(cmd => handleCommand(cmd));
-        state._isRestoring = false;
-        // Run layout once after all commands replayed
-        runLayout(true); // true = immediate, skip debounce
-      }
+  graph = new X6.Graph({
+    container: container,
+    width: container.offsetWidth,
+    height: container.offsetHeight,
+    background: { color: '#f0f2f5' },
+    grid: { visible: true, type: 'dot', size: 15, args: { color: '#ddd' } },
+    panning: { enabled: true },
+    mousewheel: { enabled: true, zoomAtMousePosition: true, minScale: 0.2, maxScale: 3, factor: 1.02 },
+    connecting: {
+      router: { name: 'manhattan', args: { padding: 20 } },
+      connector: { name: 'rounded', args: { radius: 8 } },
+      snap: { radius: 30 },
+      allowBlank: false,
+      allowLoop: false,
+      highlight: true,
+      createEdge() {
+        return graph.createEdge({
+          attrs: { line: { stroke: '#8c8c8c', strokeWidth: 2, targetMarker: { name: 'classic', size: 8 } } },
+        });
+      },
+      validateConnection({ sourceCell, targetCell }) {
+        return sourceCell !== targetCell;
+      },
+    },
+    highlighting: {
+      magnetAvailable: { name: 'stroke', args: { padding: 4, attrs: { strokeWidth: 2, stroke: '#47C769' } } },
+      magnetAdsorbed: { name: 'stroke', args: { padding: 4, attrs: { strokeWidth: 4, stroke: '#47C769' } } },
+    },
+  });
+
+  console.log('[diagram] graph created');
+
+  // Plugins
+  graph.use(new X6PluginSelection.Selection({ enabled: true, multiple: true, rubberband: true, modifiers: 'shift', showNodeSelectionBox: true, showEdgeSelectionBox: true }));
+  graph.use(new X6PluginHistory.History({ enabled: true }));
+  graph.use(new X6PluginSnapline.Snapline({ enabled: true }));
+  console.log('[diagram] plugins loaded');
+
+  // Port hover effect
+  graph.on('node:mouseenter', ({ node }) => {
+    const ports = node.getPorts();
+    ports.forEach(p => { node.setPortProp(p.id, 'attrs/circle/stroke', '#4096ff'); node.setPortProp(p.id, 'attrs/circle/r', 5); });
+  });
+  graph.on('node:mouseleave', ({ node }) => {
+    const ports = node.getPorts();
+    ports.forEach(p => { node.setPortProp(p.id, 'attrs/circle/stroke', '#ccc'); node.setPortProp(p.id, 'attrs/circle/r', 4); });
+  });
+
+  // Edge click to select + highlight
+  graph.on('edge:click', ({ edge }) => { graph.cleanSelection(); graph.select(edge); });
+  graph.on('edge:selected', ({ edge }) => {
+    edge._origStroke = edge.attr('line/stroke');
+    edge._origWidth = edge.attr('line/strokeWidth');
+    edge.attr('line/strokeWidth', 3);
+  });
+  graph.on('edge:unselected', ({ edge }) => {
+    edge.attr('line/strokeWidth', edge._origWidth || 2);
+  });
+
+  // Double-click edit node
+  graph.on('node:dblclick', ({ node }) => {
+    const text = node.attr('label/text') || '';
+    const newText = prompt('编辑标签', text);
+    if (newText !== null) node.attr('label/text', newText);
+  });
+
+  // Double-click edit edge
+  graph.on('edge:dblclick', ({ edge }) => {
+    const labels = edge.getLabels();
+    const text = labels.length > 0 ? (labels[0].attrs?.label?.text || '') : '';
+    const newText = prompt('编辑标签', text);
+    if (newText !== null) {
+      if (labels.length > 0) edge.setLabelAt(0, { attrs: { label: { text: newText } } });
+      else edge.appendLabel({ attrs: { label: { text: newText } } });
     }
-  } catch (e) {
-    console.log('No prior state to restore');
-  }
+  });
 
-  // Step 2: Connect SSE for incremental updates (session-scoped)
-  if (evtSource) { evtSource.close(); }
-  evtSource = new EventSource('/events' + sessionParam);
-  evtSource.onopen = () => {
+  // Right-click context menu
+  graph.on('node:contextmenu', ({ node, e }) => {
+    e.preventDefault();
+    contextTarget = node;
+    showContextMenu(e.clientX, e.clientY);
+  });
+  graph.on('blank:click', hideContextMenu);
+  graph.on('blank:contextmenu', ({ e }) => { e.preventDefault(); hideContextMenu(); });
+
+  // Keyboard shortcuts (native, since bindKey requires keyboard plugin)
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); e.preventDefault(); }
+    else if (mod && e.key === 'z' && !e.shiftKey) { doUndo(); e.preventDefault(); }
+    else if (mod && e.key === 'z' && e.shiftKey) { doRedo(); e.preventDefault(); }
+    else if (mod && e.key === 'y') { doRedo(); e.preventDefault(); }
+    else if (mod && e.key === 'a') { graph.select(graph.getCells()); e.preventDefault(); }
+  });
+
+  // Undo/redo button state
+  graph.on('history:change', updateUndoRedo);
+
+  // Zoom indicator
+  graph.on('scale', () => {
+    document.getElementById('zoomIndicator').textContent = Math.round(graph.zoom() * 100) + '%';
+  });
+
+  // Resize
+  window.addEventListener('resize', () => { graph.resize(container.offsetWidth, container.offsetHeight); });
+
+  console.log('[diagram] event bindigs done');
+}
+
+function deleteSelected() {
+  const cells = graph.getSelectedCells();
+  if (cells.length > 0) graph.removeCells(cells);
+}
+
+// ============================================================
+// Undo / Redo
+// ============================================================
+function doUndo() { if (graph && graph.canUndo()) graph.undo(); }
+function doRedo() { if (graph && graph.canRedo()) graph.redo(); }
+function updateUndoRedo() {
+  document.getElementById('btnUndo').disabled = !graph.canUndo();
+  document.getElementById('btnRedo').disabled = !graph.canRedo();
+}
+
+// ============================================================
+// Zoom
+// ============================================================
+function zoomIn() { graph.zoom(0.15); }
+function zoomOut() { graph.zoom(-0.15); }
+function resetView() { graph.zoomTo(1); graph.centerContent(); }
+function fitView() { if (graph.getNodes().length > 0) graph.zoomToFit({ padding: 60, maxScale: 1.5 }); }
+
+// ============================================================
+// Auto layout with dagre
+// ============================================================
+function autoLayout() {
+  const nodes = graph.getNodes();
+  const edges = graph.getEdges();
+  if (nodes.length === 0) return;
+  console.log('[diagram] autoLayout:', nodes.length, 'nodes,', edges.length, 'edges');
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir: state.direction || 'TB', nodesep: 100, ranksep: 100, marginx: 60, marginy: 60 });
+  g.setDefaultEdgeLabel(() => ({}));
+  nodes.forEach(n => {
+    const size = n.getSize();
+    g.setNode(n.id, { width: size.width, height: size.height });
+  });
+  edges.forEach(e => {
+    const src = e.getSourceCellId();
+    const tgt = e.getTargetCellId();
+    if (src && tgt) g.setEdge(src, tgt);
+  });
+  dagre.layout(g);
+  graph.startBatch('layout');
+  nodes.forEach(n => {
+    const pos = g.node(n.id);
+    if (pos) n.position(pos.x - pos.width / 2, pos.y - pos.height / 2);
+  });
+  graph.stopBatch('layout');
+  setTimeout(() => fitView(), 100);
+}
+
+// ============================================================
+// Node panel click to add
+// ============================================================
+function setupNodePanel() {
+  document.querySelectorAll('.panel-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const type = item.dataset.type;
+      const label = DEFAULT_LABELS[type] || '节点';
+      const area = graph.getContentArea();
+      const cx = (area.x || 200) + Math.random() * 100;
+      const cy = (area.y || 200) + Math.random() * 100;
+      const config = buildNodeConfig('n_' + Date.now(), type, label, cx, cy);
+      graph.addNode(config);
+      console.log('[diagram] added node from panel:', type);
+    });
+  });
+}
+
+// ============================================================
+// Context menu
+// ============================================================
+function showContextMenu(x, y) {
+  const menu = document.getElementById('contextMenu');
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('show');
+}
+function hideContextMenu() {
+  document.getElementById('contextMenu').classList.remove('show');
+  contextTarget = null;
+}
+function cmEdit() {
+  if (!contextTarget) return;
+  const text = contextTarget.attr('label/text') || '';
+  const newText = prompt('编辑标签', text);
+  if (newText !== null) contextTarget.attr('label/text', newText);
+  hideContextMenu();
+}
+function cmDuplicate() {
+  if (!contextTarget) return;
+  const pos = contextTarget.getPosition();
+  const size = contextTarget.getSize();
+  const type = contextTarget.getData()?.diagramType || 'process';
+  const label = (contextTarget.attr('label/text') || '') + ' (副本)';
+  const config = buildNodeConfig('n_' + Date.now(), type, label, pos.x + 30, pos.y + 30);
+  graph.addNode(config);
+  hideContextMenu();
+}
+function cmDelete() {
+  if (!contextTarget) return;
+  graph.removeCell(contextTarget);
+  hideContextMenu();
+}
+
+// Close context menu on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.context-menu')) hideContextMenu();
+});
+
+// ============================================================
+// SSE Connection
+// ============================================================
+function connectSSE() {
+  const params = new URLSearchParams(window.location.search);
+  const session = params.get('s') || 'default';
+  const statusEl = document.getElementById('status');
+  console.log('[diagram] connecting SSE, session:', session);
+
+  // Restore state
+  fetch('/state?s=' + session)
+    .then(r => r.json())
+    .then(cmds => {
+      console.log('[diagram] restoring', cmds.length, 'commands');
+      state._isRestoring = true;
+      cmds.forEach(cmd => handleCommand(cmd));
+      state._isRestoring = false;
+      if (graph.getNodes().length > 0) autoLayout();
+    })
+    .catch(err => console.error('[diagram] restore error:', err));
+
+  // SSE stream
+  const es = new EventSource('/events?s=' + session);
+  es.onopen = () => {
     statusEl.className = 'status connected';
     statusEl.textContent = '已连接';
-    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
+    console.log('[diagram] SSE connected');
   };
-  evtSource.onerror = () => {
+  es.onerror = () => {
     statusEl.className = 'status disconnected';
     statusEl.textContent = '断开连接';
-    evtSource.close();
-    sseReconnectTimer = setTimeout(connectSSE, 2000);
+    es.close();
+    setTimeout(() => connectSSE(), 2000);
   };
-  evtSource.onmessage = (e) => {
+  es.onmessage = (e) => {
     try {
       const cmd = JSON.parse(e.data);
+      console.log('[diagram] SSE cmd:', cmd.cmd);
       handleCommand(cmd);
-    } catch (err) { console.error('Invalid command:', e.data, err); }
+    } catch (err) { console.error('[diagram] SSE parse error:', err); }
   };
 }
 
-connectSSE();
-
 // ============================================================
-// Command Handler
+// Handle SSE commands
 // ============================================================
+let layoutTimer = null;
 function handleCommand(cmd) {
-  switch (cmd.cmd) {
-    case 'init':
-      clearDiagram();
-      if (cmd.title) titleEl.textContent = cmd.title;
-      if (cmd.direction) state.direction = cmd.direction;
-      break;
-    case 'node':
-      addNode(cmd);
-      break;
-    case 'edge':
-      addEdge(cmd);
-      break;
-    case 'layout':
-      if (!state._isRestoring) runLayout();
-      break;
-    case 'clear':
-      clearDiagram();
-      break;
-    case 'title':
-      titleEl.textContent = cmd.text || 'Interactive Diagram';
-      break;
-    case 'batch':
-      if (cmd.nodes) cmd.nodes.forEach(n => addNode(n));
-      if (cmd.edges) cmd.edges.forEach(e => addEdge(e));
-      if (!state._isRestoring) runLayout();
-      break;
-    case 'remove':
-      removeNode(cmd.id);
-      break;
-    case 'export':
-      if (cmd.format === 'png') exportPNG();
-      else if (cmd.format === 'svg') exportSVG();
-      else if (cmd.format === 'drawio') exportDrawio();
-      else exportJSON();
-      break;
-  }
-}
-
-// ============================================================
-// Node Management
-// ============================================================
-function addNode(cmd) {
-  emptyState.style.display = 'none';
-  const id = cmd.id;
-  if (state.nodes[id]) {
-    Object.assign(state.nodes[id], cmd);
-    updateNodeDOM(id);
-    return;
-  }
-  state.nodes[id] = {
-    id,
-    label: cmd.label || id,
-    type: cmd.type || 'process',
-    x: 0, y: 0,
-    width: 0, height: 0,
-    icon: cmd.icon || '',
-    group: cmd.group || ''
-  };
-  createNodeDOM(id);
-  // Auto-layout after adding node (debounced), skip during restore
-  if (!state._isRestoring) {
-    clearTimeout(state._layoutTimer);
-    state._layoutTimer = setTimeout(() => runLayout(), 150);
-  }
-}
-
-function createNodeDOM(id) {
-  const nd = state.nodes[id];
-  const el = document.createElement('div');
-  el.className = 'node';
-  if (state._isRestoring) el.classList.add('no-animate');
-  el.id = 'node-' + id;
-  el.dataset.nodeId = id;
-
-  switch (nd.type) {
-    case 'terminal':
-      el.classList.add('node-terminal');
-      el.textContent = nd.label;
-      break;
-    case 'terminal-end':
-      el.classList.add('node-terminal-end');
-      el.textContent = nd.label;
-      break;
-    case 'process':
-      el.classList.add('node-process');
-      el.textContent = nd.label;
-      break;
-    case 'decision':
-      el.classList.add('node-decision');
-      el.textContent = nd.label;
-      break;
-    case 'service':
-      el.classList.add('node-service');
-      el.innerHTML = (nd.icon ? '<div class="icon">' + escHtml(nd.icon) + '</div>' : '') + escHtml(nd.label);
-      break;
-    case 'database':
-      el.classList.add('node-database');
-      el.textContent = nd.label;
-      break;
-    case 'success':
-      el.classList.add('node-success');
-      el.textContent = nd.label;
-      break;
-    case 'error':
-      el.classList.add('node-error');
-      el.textContent = nd.label;
-      break;
-    case 'group':
-      el.classList.add('node-group');
-      el.innerHTML = '<div class="group-title">' + escHtml(nd.label) + '</div>';
-      break;
-    default:
-      el.classList.add('node-process');
-      el.textContent = nd.label;
-  }
-
-  inner.appendChild(el);
-  // Measure size synchronously by forcing layout
-  const rect = el.getBoundingClientRect();
-  nd.width = rect.width / state.scale;
-  nd.height = rect.height / state.scale;
-  // For decision nodes (diamond), make layout use larger bounding box
-  if (nd.type === 'decision') {
-    nd.width = Math.max(nd.width, 130);
-    nd.height = Math.max(nd.height, 80);
-  }
-
-  setupDrag(el, id);
-}
-
-function updateNodeDOM(id) {
-  const el = document.getElementById('node-' + id);
-  const nd = state.nodes[id];
-  if (!el || !nd) return;
-  el.textContent = nd.label;
-}
-
-function removeNode(id) {
-  const el = document.getElementById('node-' + id);
-  if (el) el.remove();
-  delete state.nodes[id];
-  state.edges = state.edges.filter(e => e.from !== id && e.to !== id);
-  renderConnections();
-}
-
-// ============================================================
-// Edge Management
-// ============================================================
-function addEdge(cmd) {
-  // Avoid duplicate edges
-  const exists = state.edges.some(e => e.from === cmd.from && e.to === cmd.to);
-  if (exists) return;
-  state.edges.push({ from: cmd.from, to: cmd.to, label: cmd.label || '', color: cmd.color || '' });
-  if (!state._isRestoring) {
-    clearTimeout(state._connTimer);
-    state._connTimer = setTimeout(() => renderConnections(), 50);
-  }
-}
-
-// ============================================================
-// Dagre Layout (using real dagre.js from CDN)
-// ============================================================
-function runLayout(immediate) {
-  if (typeof dagre === 'undefined') {
-    console.warn('dagre.js not loaded, skipping layout');
-    renderConnections();
-    return;
-  }
-
-  const nodeIds = Object.keys(state.nodes);
-  if (nodeIds.length === 0) return;
-
-  const g = new dagre.graphlib.Graph();
-  g.setGraph({
-    rankdir: state.direction || 'TB',
-    nodesep: 80,
-    ranksep: 100,
-    marginx: 60,
-    marginy: 60,
-    edgesep: 30
-  });
-  g.setDefaultEdgeLabel(() => ({}));
-
-  // Add nodes with measured dimensions
-  nodeIds.forEach(id => {
-    const nd = state.nodes[id];
-    g.setNode(id, {
-      width: nd.width || 120,
-      height: nd.height || 60
-    });
-  });
-
-  // Add edges
-  state.edges.forEach(e => {
-    if (state.nodes[e.from] && state.nodes[e.to]) {
-      g.setEdge(e.from, e.to);
-    }
-  });
-
-  // Run dagre layout
-  dagre.layout(g);
-
-  // Apply positions - dagre returns CENTER coordinates, convert to top-left
-  nodeIds.forEach(id => {
-    const pos = g.node(id);
-    const nd = state.nodes[id];
-    if (!nd || !pos) return;
-    // Convert center to top-left
-    nd.x = pos.x - (nd.width || 120) / 2;
-    nd.y = pos.y - (nd.height || 60) / 2;
-    const el = document.getElementById('node-' + id);
-    if (el) {
-      if (state._isRestoring || immediate) {
-        // No animation during restore
-        el.style.left = nd.x + 'px';
-        el.style.top = nd.y + 'px';
-      } else {
-        el.style.transition = 'left .4s ease, top .4s ease';
-        el.style.left = nd.x + 'px';
-        el.style.top = nd.y + 'px';
-        setTimeout(() => { el.style.transition = 'box-shadow .15s'; }, 450);
+  try {
+    switch (cmd.cmd) {
+      case 'init':
+        graph.clearCells();
+        if (cmd.title) document.getElementById('diagramTitle').textContent = cmd.title;
+        if (cmd.direction) state.direction = cmd.direction;
+        break;
+      case 'node': {
+        const type = cmd.type || 'process';
+        const existing = graph.getCellById(cmd.id);
+        if (existing) {
+          if (cmd.label) existing.attr('label/text', cmd.label);
+        } else {
+          const config = buildNodeConfig(cmd.id, type, cmd.label || '', cmd.x || 0, cmd.y || 0);
+          graph.addNode(config);
+        }
+        if (!state._isRestoring) debounceLayout();
+        break;
       }
+      case 'edge': {
+        // Smart port selection: decision nodes use left/right for multiple outgoing edges
+        let sourcePort = 'pb';
+        let targetPort = 'pt';
+        const sourceCell = graph.getCellById(cmd.from);
+        if (sourceCell && sourceCell.getData()?.diagramType === 'decision') {
+          const existingOutEdges = graph.getOutgoingEdges(sourceCell) || [];
+          const usedPorts = existingOutEdges.map(e => e.getSourcePortId());
+          if (!usedPorts.includes('pl')) sourcePort = 'pl';
+          else if (!usedPorts.includes('pr')) sourcePort = 'pr';
+          else sourcePort = 'pb';
+        }
+        const edgeConfig = {
+          source: { cell: cmd.from, port: sourcePort },
+          target: { cell: cmd.to, port: targetPort },
+          attrs: { line: { stroke: cmd.color || '#8c8c8c', strokeWidth: 2, targetMarker: { name: 'classic', size: 8 } } },
+        };
+        if (cmd.label) {
+          edgeConfig.labels = [{ attrs: { label: { text: cmd.label, fill: '#666', fontSize: 11 }, rect: { fill: '#f0f2f5', stroke: 'none' } } }];
+        }
+        graph.addEdge(edgeConfig);
+        break;
+      }
+      case 'remove': {
+        const cell = graph.getCellById(cmd.id);
+        if (cell) graph.removeCell(cell);
+        break;
+      }
+      case 'layout':
+        autoLayout();
+        break;
+      case 'clear':
+        graph.clearCells();
+        break;
+      case 'title':
+        if (cmd.text) document.getElementById('diagramTitle').textContent = cmd.text;
+        break;
+      case 'batch':
+        if (cmd.nodes) cmd.nodes.forEach(n => handleCommand({ cmd: 'node', ...n }));
+        if (cmd.edges) cmd.edges.forEach(e => handleCommand({ cmd: 'edge', ...e }));
+        autoLayout();
+        break;
+      case 'export':
+        if (cmd.format === 'png') exportPNG();
+        else if (cmd.format === 'svg') exportSVG();
+        else if (cmd.format === 'drawio') drawioDownload();
+        else exportJSON();
+        break;
     }
-  });
-
-  // Render connections after positions are set
-  if (state._isRestoring || immediate) {
-    requestAnimationFrame(() => {
-      renderConnections();
-      fitView();
-    });
-  } else {
-    setTimeout(() => renderConnections(), 60);
-    setTimeout(() => fitView(), 500);
+  } catch (err) {
+    console.error('[diagram] handleCommand error:', cmd, err);
   }
 }
 
-// ============================================================
-// Connection Rendering
-// ============================================================
-function renderConnections() {
-  // Remove old SVG paths (keep defs)
-  connSvg.querySelectorAll('path').forEach(el => el.remove());
-  // Remove old HTML edge labels
-  edgeLabelsEl.innerHTML = '';
-
-  state.edges.forEach(edge => {
-    const src = state.nodes[edge.from];
-    const tgt = state.nodes[edge.to];
-    if (!src || !tgt) return;
-
-    // Calculate node centers
-    const sx = src.x + (src.width || 120) / 2;
-    const sy = src.y + (src.height || 60) / 2;
-    const tx = tgt.x + (tgt.width || 120) / 2;
-    const ty = tgt.y + (tgt.height || 60) / 2;
-
-    // Find edge points on node boundaries
-    const sp = edgePoint(src, tx, ty);
-    const tp = edgePoint(tgt, sx, sy);
-
-    // Bezier control points
-    const dx = tp.x - sp.x;
-    const dy = tp.y - sp.y;
-    let cx1, cy1, cx2, cy2;
-    const isVertical = state.direction === 'TB' || state.direction === 'BT';
-    if (isVertical) {
-      cx1 = sp.x; cy1 = sp.y + dy * 0.5;
-      cx2 = tp.x; cy2 = tp.y - dy * 0.5;
-    } else {
-      cx1 = sp.x + dx * 0.5; cy1 = sp.y;
-      cx2 = tp.x - dx * 0.5; cy2 = tp.y;
-    }
-
-    const markerColor = edge.color ? 'url(#arrow-' + edge.color + ')' : 'url(#arrowhead)';
-    const strokeColor = edge.color ? getColor(edge.color) : '#8c8c8c';
-
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', `M${sp.x} ${sp.y} C${cx1} ${cy1}, ${cx2} ${cy2}, ${tp.x} ${tp.y}`);
-    path.setAttribute('stroke', strokeColor);
-    path.setAttribute('stroke-width', '2');
-    path.setAttribute('fill', 'none');
-    path.setAttribute('marker-end', markerColor);
-    connSvg.appendChild(path);
-
-    // Edge label as HTML div (z-index 3, above nodes)
-    if (edge.label) {
-      const mx = (sp.x + tp.x) / 2;
-      const my = (sp.y + tp.y) / 2;
-      const labelDiv = document.createElement('div');
-      labelDiv.className = 'edge-label-div';
-      labelDiv.textContent = edge.label;
-      labelDiv.style.left = mx + 'px';
-      labelDiv.style.top = my + 'px';
-      edgeLabelsEl.appendChild(labelDiv);
-    }
-  });
-}
-
-function edgePoint(node, targetX, targetY) {
-  const cx = node.x + (node.width || 120) / 2;
-  const cy = node.y + (node.height || 60) / 2;
-  const w = (node.width || 120) / 2 + 4;
-  const h = (node.height || 60) / 2 + 4;
-
-  if (node.type === 'decision') {
-    // Diamond shape — clip-path polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)
-    const dw = (node.width || 130) / 2 + 4;
-    const dh = (node.height || 80) / 2 + 4;
-    const dx = targetX - cx, dy = targetY - cy;
-    const adx = Math.abs(dx), ady = Math.abs(dy);
-    if (adx === 0 && ady === 0) return { x: cx, y: cy - dh };
-    if (adx * dh > ady * dw) {
-      const s = dx > 0 ? 1 : -1;
-      return { x: cx + s * dw, y: cy + (adx > 0 ? dy * (dw / adx) : 0) };
-    } else {
-      const s = dy > 0 ? 1 : -1;
-      return { x: cx + (ady > 0 ? dx * (dh / ady) : 0), y: cy + s * dh };
-    }
-  }
-
-  // Rectangle intersection
-  const dx = targetX - cx, dy = targetY - cy;
-  if (dx === 0 && dy === 0) return { x: cx, y: cy - h };
-  const adx = Math.abs(dx), ady = Math.abs(dy);
-  if (adx * h > ady * w) {
-    const s = dx > 0 ? 1 : -1;
-    return { x: cx + s * w, y: cy + (adx > 0 ? dy * (w / adx) : 0) };
-  } else {
-    const s = dy > 0 ? 1 : -1;
-    return { x: cx + (ady > 0 ? dx * (h / ady) : 0), y: cy + s * h };
-  }
-}
-
-function getColor(c) {
-  const m = { 'blue': '#4096ff', 'green': '#52c41a', 'red': '#ff4d4f', 'purple': '#722ed1', 'cyan': '#13c2c2', 'orange': '#faad14' };
-  return m[c] || c || '#8c8c8c';
-}
-
-// ============================================================
-// Drag System
-// ============================================================
-let dragState = null;
-function setupDrag(el, id) {
-  const start = (ex, ey) => {
-    el.classList.add('dragging');
-    const nd = state.nodes[id];
-    dragState = { id, offsetX: ex / state.scale - nd.x, offsetY: ey / state.scale - nd.y };
-  };
-  el.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault(); e.stopPropagation();
-    const rect = inner.getBoundingClientRect();
-    start(e.clientX - rect.left, e.clientY - rect.top);
-  });
-  el.addEventListener('touchstart', (e) => {
-    e.stopPropagation();
-    const t = e.touches[0];
-    const rect = inner.getBoundingClientRect();
-    start(t.clientX - rect.left, t.clientY - rect.top);
-  }, { passive: true });
-}
-
-document.addEventListener('mousemove', (e) => {
-  if (!dragState) return;
-  const rect = inner.getBoundingClientRect();
-  const nd = state.nodes[dragState.id];
-  nd.x = (e.clientX - rect.left) / state.scale - dragState.offsetX;
-  nd.y = (e.clientY - rect.top) / state.scale - dragState.offsetY;
-  const el = document.getElementById('node-' + dragState.id);
-  if (el) { el.style.left = nd.x + 'px'; el.style.top = nd.y + 'px'; }
-  renderConnections();
-});
-document.addEventListener('mouseup', () => {
-  if (dragState) {
-    const el = document.getElementById('node-' + dragState.id);
-    if (el) el.classList.remove('dragging');
-    dragState = null;
-  }
-});
-document.addEventListener('touchmove', (e) => {
-  if (!dragState) return;
-  const t = e.touches[0];
-  const rect = inner.getBoundingClientRect();
-  const nd = state.nodes[dragState.id];
-  nd.x = (t.clientX - rect.left) / state.scale - dragState.offsetX;
-  nd.y = (t.clientY - rect.top) / state.scale - dragState.offsetY;
-  const el = document.getElementById('node-' + dragState.id);
-  if (el) { el.style.left = nd.x + 'px'; el.style.top = nd.y + 'px'; }
-  renderConnections();
-}, { passive: true });
-document.addEventListener('touchend', () => {
-  if (dragState) {
-    const el = document.getElementById('node-' + dragState.id);
-    if (el) el.classList.remove('dragging');
-    dragState = null;
-  }
-});
-
-// ============================================================
-// Pan (drag canvas, NO scroll zoom)
-// ============================================================
-let panState = null;
-canvas.addEventListener('mousedown', (e) => {
-  if (dragState) return;
-  if (e.target !== canvas && e.target !== inner && !e.target.classList.contains('connections')) return;
-  canvas.classList.add('panning');
-  panState = { startX: e.clientX - state.panX, startY: e.clientY - state.panY };
-});
-document.addEventListener('mousemove', (e) => {
-  if (!panState) return;
-  state.panX = e.clientX - panState.startX;
-  state.panY = e.clientY - panState.startY;
-  applyTransform();
-});
-document.addEventListener('mouseup', () => {
-  if (panState) { canvas.classList.remove('panning'); panState = null; }
-});
-
-function applyTransform() {
-  inner.style.transform = `translate(${state.panX}px,${state.panY}px) scale(${state.scale})`;
-  zoomEl.textContent = Math.round(state.scale * 100) + '%';
-}
-
-// ============================================================
-// Zoom (buttons + Ctrl/Cmd+wheel + trackpad pinch)
-// ============================================================
-canvas.addEventListener('wheel', (e) => {
-  e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-  const oldScale = state.scale;
-  // trackpad pinch sends ctrlKey + small deltaY; mouse wheel sends larger deltaY
-  // Normalize: clamp effective delta to smooth out big wheel jumps
-  const raw = e.ctrlKey ? e.deltaY * 3 : e.deltaY;
-  const clamped = Math.max(-30, Math.min(30, raw));
-  const factor = 1 - clamped * 0.008;
-  state.scale = Math.min(3, Math.max(0.2, oldScale * factor));
-  const ratio = state.scale / oldScale;
-  state.panX = mx - ratio * (mx - state.panX);
-  state.panY = my - ratio * (my - state.panY);
-  applyTransform();
-}, { passive: false });
-function zoomIn() { state.scale = Math.min(3, state.scale * 1.15); applyTransform(); }
-function zoomOut() { state.scale = Math.max(0.2, state.scale / 1.15); applyTransform(); }
-function resetView() { state.scale = 1; state.panX = 0; state.panY = 0; applyTransform(); }
-
-function fitView() {
-  const nodes = Object.values(state.nodes);
-  if (nodes.length === 0) return;
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  nodes.forEach(n => {
-    minX = Math.min(minX, n.x);
-    minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x + (n.width || 120));
-    maxY = Math.max(maxY, n.y + (n.height || 60));
-  });
-  const cw = canvas.clientWidth;
-  const ch = canvas.clientHeight;
-  const gw = maxX - minX + 120;
-  const gh = maxY - minY + 120;
-  const s = Math.min(cw / gw, ch / gh, 1.5);
-  state.scale = Math.max(0.3, Math.min(s, 1.5));
-  state.panX = (cw - gw * state.scale) / 2 - minX * state.scale + 60 * state.scale;
-  state.panY = (ch - gh * state.scale) / 2 - minY * state.scale + 60 * state.scale;
-  applyTransform();
-}
-
-// ============================================================
-// Clear
-// ============================================================
-function clearDiagram() {
-  Object.keys(state.nodes).forEach(id => {
-    const el = document.getElementById('node-' + id);
-    if (el) el.remove();
-  });
-  state.nodes = {};
-  state.edges = [];
-  renderConnections();
-  edgeLabelsEl.innerHTML = '';
-  emptyState.style.display = '';
-  resetView();
+function debounceLayout() {
+  clearTimeout(layoutTimer);
+  layoutTimer = setTimeout(() => autoLayout(), 300);
 }
 
 // ============================================================
 // Export
 // ============================================================
 function exportPNG() {
-  const nodes = Object.values(state.nodes);
-  if (nodes.length === 0) return;
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  nodes.forEach(n => { minX = Math.min(minX, n.x - 10); minY = Math.min(minY, n.y - 10); maxX = Math.max(maxX, n.x + (n.width || 120) + 10); maxY = Math.max(maxY, n.y + (n.height || 60) + 10); });
-  const w = maxX - minX + 40; const h = maxY - minY + 40;
-  const c = document.createElement('canvas');
-  c.width = w * 2; c.height = h * 2;
-  const ctx = c.getContext('2d');
-  ctx.scale(2, 2); ctx.fillStyle = '#f0f2f5'; ctx.fillRect(0, 0, w, h);
-  const clone = inner.cloneNode(true);
-  clone.querySelector('.empty-state')?.remove();
-  clone.style.transform = `translate(${-minX + 20}px,${-minY + 20}px)`;
-  const data = new XMLSerializer().serializeToString(clone);
-  const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = `<svg xmlns="${svgNS}" width="${w}" height="${h}"><foreignObject width="${w}" height="${h}"><div xmlns="http://www.w3.org/1999/xhtml">${data}</div></foreignObject></svg>`;
-  const img = new Image();
-  img.onload = () => { ctx.drawImage(img, 0, 0); const a = document.createElement('a'); a.download = 'diagram.png'; a.href = c.toDataURL('image/png'); a.click(); };
-  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  graph.toPNG((dataUri) => {
+    const a = document.createElement('a'); a.download = 'diagram.png'; a.href = dataUri; a.click();
+  }, { backgroundColor: '#f0f2f5', padding: 20 });
 }
-
 function exportSVG() {
-  const clone = connSvg.cloneNode(true);
-  const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' });
-  const a = document.createElement('a'); a.download = 'diagram.svg'; a.href = URL.createObjectURL(blob); a.click();
+  graph.toSVG((svg) => {
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const a = document.createElement('a'); a.download = 'diagram.svg'; a.href = URL.createObjectURL(blob); a.click();
+  });
 }
-
 function exportJSON() {
-  const data = { nodes: Object.values(state.nodes), edges: state.edges, direction: state.direction };
+  const data = graph.toJSON();
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.download = 'diagram.json'; a.href = URL.createObjectURL(blob); a.click();
 }
 
 function generateDrawioXml() {
-  const nodes = Object.values(state.nodes);
+  const nodes = graph.getNodes();
   if (nodes.length === 0) return null;
-  const styleMap = {
+  const drawioStyles = {
     'terminal': 'ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
     'terminal-end': 'ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;',
     'process': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;',
     'decision': 'rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;',
     'service': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;',
-    'database': 'shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;',
+    'database': 'shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
     'success': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
     'error': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;',
-    'group': 'rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#666666;',
   };
-  const defaultStyle = 'rounded=1;whiteSpace=wrap;html=1;';
   let cellId = 2;
-  const nodeIdMap = {};
+  const idMap = {};
   let cells = '';
   nodes.forEach(n => {
     const mid = cellId++;
-    nodeIdMap[n.id] = mid;
-    const style = styleMap[n.type] || defaultStyle;
-    const w = n.width || 120;
-    const h = n.height || 60;
-    const label = escHtml(n.label || '');
-    cells += `        <mxCell id="${mid}" value="${label}" style="${style}" vertex="1" parent="1">\n          <mxGeometry x="${Math.round(n.x)}" y="${Math.round(n.y)}" width="${w}" height="${h}" as="geometry" />\n        </mxCell>\n`;
+    idMap[n.id] = mid;
+    const type = n.getData()?.diagramType || 'process';
+    const style = drawioStyles[type] || 'rounded=1;whiteSpace=wrap;html=1;';
+    const pos = n.getPosition();
+    const size = n.getSize();
+    const label = escHtml(n.attr('label/text') || '');
+    cells += `        <mxCell id="${mid}" value="${label}" style="${style}" vertex="1" parent="1"><mxGeometry x="${Math.round(pos.x)}" y="${Math.round(pos.y)}" width="${size.width}" height="${size.height}" as="geometry"/></mxCell>\n`;
   });
-  state.edges.forEach(e => {
+  graph.getEdges().forEach(e => {
     const mid = cellId++;
-    const src = nodeIdMap[e.from];
-    const tgt = nodeIdMap[e.to];
-    if (src === undefined || tgt === undefined) return;
-    const label = e.label ? ` value="${escHtml(e.label)}"` : '';
-    let style = 'edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;';
-    if (e.color) style += `strokeColor=${e.color};`;
-    cells += `        <mxCell id="${mid}"${label} style="${style}" edge="1" source="${src}" target="${tgt}" parent="1">\n          <mxGeometry relative="1" as="geometry" />\n        </mxCell>\n`;
+    const src = idMap[e.getSourceCellId()];
+    const tgt = idMap[e.getTargetCellId()];
+    if (!src || !tgt) return;
+    const labels = e.getLabels();
+    const lt = labels.length > 0 ? labels[0].attrs?.label?.text : '';
+    const la = lt ? ` value="${escHtml(lt)}"` : '';
+    cells += `        <mxCell id="${mid}"${la} style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" source="${src}" target="${tgt}" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>\n`;
   });
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<mxfile>
-  <diagram name="Diagram">
-    <mxGraphModel>
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-${cells}      </root>
-    </mxGraphModel>
-  </diagram>
-</mxfile>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<mxfile><diagram name="Diagram"><mxGraphModel><root>\n        <mxCell id="0"/>\n        <mxCell id="1" parent="0"/>\n${cells}</root></mxGraphModel></diagram></mxfile>`;
 }
 
-function exportDrawio() { drawioDownload(); }
-
 function drawioDownload() {
-  const xml = generateDrawioXml();
-  if (!xml) return;
+  const xml = generateDrawioXml(); if (!xml) return;
   const blob = new Blob([xml], { type: 'application/xml' });
   const a = document.createElement('a'); a.download = 'diagram.drawio'; a.href = URL.createObjectURL(blob); a.click();
   closeDrawioMenu();
 }
-
 function drawioCopy() {
-  const xml = generateDrawioXml();
-  if (!xml) return;
+  const xml = generateDrawioXml(); if (!xml) return;
   navigator.clipboard.writeText(xml).then(() => showToast('已复制 XML 到剪贴板'));
   closeDrawioMenu();
 }
-
-function toggleDrawioMenu(e) {
-  e.stopPropagation();
-  document.getElementById('drawioMenu').classList.toggle('show');
-}
-
-function closeDrawioMenu() {
-  document.getElementById('drawioMenu').classList.remove('show');
-}
-
-document.addEventListener('click', closeDrawioMenu);
-
-function showToast(msg) {
-  let t = document.getElementById('toast');
-  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 1500);
-}
+function toggleDrawioMenu(e) { e.stopPropagation(); document.getElementById('drawioMenu').classList.toggle('show'); }
+function closeDrawioMenu() { document.getElementById('drawioMenu').classList.remove('show'); }
+document.addEventListener('click', (e) => { if (!e.target.closest('.dropdown')) closeDrawioMenu(); });
 
 // ============================================================
 // Util
 // ============================================================
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function showToast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1500);
+}
+
+// ============================================================
+// Boot
+// ============================================================
+window.addEventListener('DOMContentLoaded', () => {
+  console.log('[diagram] DOMContentLoaded, X6 version:', typeof X6 !== 'undefined' ? 'loaded' : 'MISSING');
+  initGraph();
+  setupNodePanel();
+  connectSSE();
+});
 </script>
 </body>
 </html>

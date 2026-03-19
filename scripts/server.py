@@ -17,7 +17,7 @@ from socketserver import ThreadingMixIn
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "template-x6.html"
+TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "template.html"
 STATE_DIR = Path("/tmp/diagram-sessions")
 lock = threading.Lock()
 
