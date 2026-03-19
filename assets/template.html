@@ -566,7 +566,7 @@ function generateDrawioXml() {
     const style = drawioStyles[type] || 'rounded=1;whiteSpace=wrap;html=1;';
     const pos = n.getPosition();
     const size = n.getSize();
-    const label = escHtml(n.attr('label/text') || '');
+    const label = escHtml(n.attr('label/text') || n.attr('text/text') || '');
     cells += `        <mxCell id="${mid}" value="${label}" style="${style}" vertex="1" parent="1"><mxGeometry x="${Math.round(pos.x)}" y="${Math.round(pos.y)}" width="${size.width}" height="${size.height}" as="geometry"/></mxCell>\n`;
   });
   graph.getEdges().forEach(e => {
@@ -575,7 +575,7 @@ function generateDrawioXml() {
     const tgt = idMap[e.getTargetCellId()];
     if (!src || !tgt) return;
     const labels = e.getLabels();
-    const lt = labels.length > 0 ? labels[0].attrs?.label?.text : '';
+    const lt = labels.length > 0 ? (labels[0].attrs?.label?.text || labels[0].attrs?.text?.text || '') : '';
     const la = lt ? ` value="${escHtml(lt)}"` : '';
     cells += `        <mxCell id="${mid}"${la} style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" source="${src}" target="${tgt}" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>\n`;
   });
