@@ -482,28 +482,39 @@ function disconnectSSE() {
   statusEl.textContent = '后台暂停';
 }
 
-// Release SSE connection when tab is hidden to free browser connection pool
-// (browsers limit ~6 concurrent HTTP/1.1 connections per domain)
-// Use a 30s delay so short switches (e.g. back to terminal for curl export) still work
-let _disconnectTimer = null;
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    _disconnectTimer = setTimeout(() => {
-      _disconnectTimer = null;
+// ============================================================
+// Cross-tab SSE coordination via BroadcastChannel
+// Only the most recently active tab keeps its SSE connection.
+// This ensures at most 1 SSE connection exists across all tabs,
+// preventing browser's per-domain connection limit (6) from being exhausted.
+// ============================================================
+const _tabId = Math.random().toString(36).slice(2);
+const _bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('diagram-sse') : null;
+
+if (_bc) {
+  _bc.onmessage = (e) => {
+    if (e.data.type === 'claim-sse' && e.data.tabId !== _tabId) {
+      // Another tab is claiming the SSE connection, yield ours
       disconnectSSE();
-    }, 30000);
-  } else {
-    // Cancel pending disconnect if user comes back quickly
-    if (_disconnectTimer) {
-      clearTimeout(_disconnectTimer);
-      _disconnectTimer = null;
     }
-    // Reconnect if we were actually disconnected
+  };
+}
+
+function claimSSE() {
+  if (_bc) _bc.postMessage({ type: 'claim-sse', tabId: _tabId });
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    // This tab became visible — claim the SSE connection
+    claimSSE();
     if (!_eventSource) {
       _stateRestored = false;
       connectSSE();
     }
   }
+  // When hidden: do nothing immediately. SSE stays alive until another tab claims it.
+  // This keeps export working when user switches to terminal briefly.
 });
 
 // ============================================================
