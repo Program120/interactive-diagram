@@ -403,26 +403,46 @@ document.addEventListener('click', (e) => {
 // ============================================================
 // SSE Connection
 // ============================================================
+let _eventSource = null;
+let _sseSession = null;
+let _reconnectTimer = null;
+let _stateRestored = false;
+
 function connectSSE() {
+  // Close existing connection first
+  if (_eventSource) {
+    _eventSource.close();
+    _eventSource = null;
+  }
+  if (_reconnectTimer) {
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
+
   const params = new URLSearchParams(window.location.search);
   const session = params.get('s') || 'default';
+  _sseSession = session;
   const statusEl = document.getElementById('status');
   console.log('[diagram] connecting SSE, session:', session);
 
-  // Restore state
-  fetch('/state?s=' + session)
-    .then(r => r.json())
-    .then(cmds => {
-      console.log('[diagram] restoring', cmds.length, 'commands');
-      state._isRestoring = true;
-      cmds.forEach(cmd => handleCommand(cmd));
-      state._isRestoring = false;
-      if (graph.getNodes().length > 0) autoLayout();
-    })
-    .catch(err => console.error('[diagram] restore error:', err));
+  // Restore state (only on first connect or if graph is empty)
+  if (!_stateRestored) {
+    fetch('/state?s=' + session)
+      .then(r => r.json())
+      .then(cmds => {
+        console.log('[diagram] restoring', cmds.length, 'commands');
+        state._isRestoring = true;
+        cmds.forEach(cmd => handleCommand(cmd));
+        state._isRestoring = false;
+        _stateRestored = true;
+        if (graph.getNodes().length > 0) autoLayout();
+      })
+      .catch(err => console.error('[diagram] restore error:', err));
+  }
 
   // SSE stream
   const es = new EventSource('/events?s=' + session);
+  _eventSource = es;
   es.onopen = () => {
     statusEl.className = 'status connected';
     statusEl.textContent = '已连接';
@@ -432,7 +452,11 @@ function connectSSE() {
     statusEl.className = 'status disconnected';
     statusEl.textContent = '断开连接';
     es.close();
-    setTimeout(() => connectSSE(), 2000);
+    _eventSource = null;
+    // Only auto-reconnect if page is visible
+    if (!document.hidden) {
+      _reconnectTimer = setTimeout(() => connectSSE(), 2000);
+    }
   };
   es.onmessage = (e) => {
     try {
@@ -442,6 +466,33 @@ function connectSSE() {
     } catch (err) { console.error('[diagram] SSE parse error:', err); }
   };
 }
+
+function disconnectSSE() {
+  if (_eventSource) {
+    _eventSource.close();
+    _eventSource = null;
+    console.log('[diagram] SSE disconnected (page hidden)');
+  }
+  if (_reconnectTimer) {
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
+  const statusEl = document.getElementById('status');
+  statusEl.className = 'status disconnected';
+  statusEl.textContent = '后台暂停';
+}
+
+// Release SSE connection when tab is hidden to free browser connection pool
+// (browsers limit ~6 concurrent HTTP/1.1 connections per domain)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    disconnectSSE();
+  } else {
+    // Reconnect and catch up on missed commands
+    _stateRestored = false;
+    connectSSE();
+  }
+});
 
 // ============================================================
 // Handle SSE commands
