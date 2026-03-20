@@ -52,15 +52,13 @@ Agent sends curl commands (~30-50 tokens each)
 
 ### Step 1: Start the server AND open browser FIRST
 
-This step MUST be a SEPARATE Bash call that completes BEFORE any diagram commands:
+This step MUST be a SEPARATE Bash call that completes BEFORE any diagram commands.
+
+**IMPORTANT: ALWAYS use a unique session ID for each diagram.** Generate a short, descriptive session name based on the diagram topic (e.g., `login-flow`, `arch-overview`, `deploy-pipeline`). NEVER use the default session (no `?s=` param) — it gets overwritten by the next diagram.
+
 ```bash
 curl -s http://127.0.0.1:6100/status 2>/dev/null || python3 ~/.claude/skills/interactive-diagram/scripts/server.py &
-sleep 1 && curl -s http://127.0.0.1:6100/status && open http://127.0.0.1:6100
-```
-
-For a new session (multiple diagrams):
-```bash
-open 'http://127.0.0.1:6100/?s=session_name'
+sleep 1 && curl -s http://127.0.0.1:6100/status && open 'http://127.0.0.1:6100/?s=my-diagram'
 ```
 
 **IMPORTANT: Wait for Step 1 to complete (browser opened) before proceeding to Step 2.**
@@ -69,7 +67,7 @@ open 'http://127.0.0.1:6100/?s=session_name'
 ### Step 2: Initialize the diagram (SEPARATE Bash call)
 
 ```bash
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"init","title":"图表标题","direction":"TB"}'
+curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"init","title":"图表标题","direction":"TB"}'
 ```
 
 Direction options: `TB` (top-bottom), `LR` (left-right), `BT` (bottom-top), `RL` (right-left)
@@ -78,24 +76,24 @@ Direction options: `TB` (top-bottom), `LR` (left-right), `BT` (bottom-top), `RL`
 
 Send each node as an individual curl command. The user will see nodes appear in real-time:
 ```bash
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"n1","label":"开始","type":"terminal"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"n2","label":"处理数据","type":"process"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"n3","label":"是否成功?","type":"decision"}'
+curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"node","id":"n1","label":"开始","type":"terminal"}'
+curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"node","id":"n2","label":"处理数据","type":"process"}'
+curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"node","id":"n3","label":"是否成功?","type":"decision"}'
 ```
 
 ### Step 4: Add edges one by one
 
 ```bash
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"n1","to":"n2"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"n2","to":"n3","label":"验证"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"n3","to":"n4","label":"是","color":"green"}'
+curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"edge","from":"n1","to":"n2"}'
+curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"edge","from":"n2","to":"n3","label":"验证"}'
+curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"edge","from":"n3","to":"n4","label":"是","color":"green"}'
 ```
 
 ### Step 5 (optional): Trigger manual layout
 
 Nodes auto-layout as they're added, but you can force a re-layout:
 ```bash
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"layout"}'
+curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"layout"}'
 ```
 
 ## Node Types
@@ -171,14 +169,15 @@ PNG export defaults to a high-DPI ratio so output is sharper on Retina/high-dens
 
 ## CRITICAL RULES for the Agent
 
-1. **BROWSER MUST BE OPEN BEFORE SENDING COMMANDS TO A NEW SESSION.** For the first diagram or a new session (`?s=xxx`), Step 1 (start server + open browser) MUST be a separate Bash call that completes before Step 2. NEVER combine server start/browser open and diagram commands in a single Bash call. However, if replacing a diagram in an EXISTING session (browser tab already open), just send `init` directly — no need to re-open the browser.
-2. **Send nodes and edges INDIVIDUALLY** — one curl per node, one curl per edge. This creates the real-time incremental effect.
-3. **Keep commands minimal** — only include required fields. Don't add unnecessary whitespace in JSON.
-4. **Use descriptive IDs** — like `start`, `login`, `validate` instead of `n1`, `n2`, `n3`.
-5. **Auto-layout handles positioning** — do NOT specify `x` or `y` coordinates. Dagre calculates optimal positions.
-6. **Send init first** — always start with an `init` command to clear previous state and set the title.
-7. **Add all nodes before edges** — this produces better layout results. Send all node commands first, then all edge commands, then optionally a `layout` command.
-8. **Execution order for NEW sessions**: Bash 1: start server + open browser → Bash 2: init + nodes + edges. Two separate tool calls, NOT one. For EXISTING sessions (browser already open): just send init + nodes + edges directly in one Bash call.
+1. **ALWAYS use a unique session ID (`?s=xxx`) for every diagram.** Generate a short, descriptive name based on the diagram topic (e.g., `login-flow`, `arch-overview`). NEVER use the default session (omitting `?s=`). All curl commands and browser URLs must include `?s=SESSION_ID`. This prevents diagrams from overwriting each other and ensures each diagram survives server restarts.
+2. **BROWSER MUST BE OPEN BEFORE SENDING COMMANDS TO A NEW SESSION.** For the first diagram or a new session (`?s=xxx`), Step 1 (start server + open browser) MUST be a separate Bash call that completes before Step 2. NEVER combine server start/browser open and diagram commands in a single Bash call. However, if replacing a diagram in an EXISTING session (browser tab already open), just send `init` directly — no need to re-open the browser.
+3. **Send nodes and edges INDIVIDUALLY** — one curl per node, one curl per edge. This creates the real-time incremental effect.
+4. **Keep commands minimal** — only include required fields. Don't add unnecessary whitespace in JSON.
+5. **Use descriptive IDs** — like `start`, `login`, `validate` instead of `n1`, `n2`, `n3`.
+6. **Auto-layout handles positioning** — do NOT specify `x` or `y` coordinates. Dagre calculates optimal positions.
+7. **Send init first** — always start with an `init` command to clear previous state and set the title.
+8. **Add all nodes before edges** — this produces better layout results. Send all node commands first, then all edge commands, then optionally a `layout` command.
+9. **Execution order for NEW sessions**: Bash 1: start server + open browser → Bash 2: init + nodes + edges. Two separate tool calls, NOT one. For EXISTING sessions (browser already open): just send init + nodes + edges directly in one Bash call.
 
 ## Token Efficiency
 
@@ -194,15 +193,15 @@ This is 90% less than generating a full HTML file (~4000+ tokens).
 - Do NOT stop the server between diagrams
 
 ### Multiple diagrams in one session
-- Each diagram gets its own **session** via `?s=` URL parameter
-- Default session (no param) is `default`
-- To create a second diagram while keeping the first:
+- Every diagram MUST use its own **session** via `?s=` URL parameter
+- Generate a descriptive session name for each diagram (e.g., `login-flow`, `arch-v2`, `deploy-pipeline`)
+- Example:
   ```bash
-  # Diagram 1 (default session)
-  curl -s 127.0.0.1:6100/cmd -d '{"cmd":"init","title":"流程图"}'
-  # ... add nodes/edges ...
+  # Diagram 1
+  curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"init","title":"流程图"}'
+  # ... add nodes/edges to ?s=login-flow ...
 
-  # Diagram 2 (separate session)
+  # Diagram 2
   curl -s '127.0.0.1:6100/cmd?s=arch' -d '{"cmd":"init","title":"架构图"}'
   # ... add nodes/edges to ?s=arch ...
   open 'http://127.0.0.1:6100/?s=arch'  # opens in new tab
@@ -211,8 +210,7 @@ This is 90% less than generating a full HTML file (~4000+ tokens).
 - List all sessions: `curl -s 127.0.0.1:6100/sessions`
 
 ### Opening the browser
-- First diagram: `open http://127.0.0.1:6100` (default session)
-- Additional diagram: `open 'http://127.0.0.1:6100/?s=session_name'`
+- Always include session ID: `open 'http://127.0.0.1:6100/?s=session_name'`
 - Only open browser when starting a NEW session, not when adding to an existing one
 
 ## Server Endpoints
@@ -242,31 +240,31 @@ and generate a complete HTML file with inline Dagre layout, CSS, and JS.
 ```bash
 # Start server
 curl -s http://127.0.0.1:6100/status 2>/dev/null || python3 ~/.claude/skills/interactive-diagram/scripts/server.py &
-sleep 1
+sleep 1 && open 'http://127.0.0.1:6100/?s=login-flow'
 
 # Initialize
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"init","title":"用户登录流程","direction":"TB"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"init","title":"用户登录流程","direction":"TB"}'
 
 # Add nodes
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"start","label":"开始","type":"terminal"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"input","label":"输入用户名密码","type":"process"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"validate","label":"验证信息","type":"process"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"check","label":"是否正确?","type":"decision"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"ok","label":"登录成功","type":"success"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"fail","label":"显示错误","type":"error"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"retry","label":"重试次数超限?","type":"decision"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"lock","label":"账户锁定","type":"error"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"end","label":"结束","type":"terminal-end"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"start","label":"开始","type":"terminal"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"input","label":"输入用户名密码","type":"process"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"validate","label":"验证信息","type":"process"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"check","label":"是否正确?","type":"decision"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"ok","label":"登录成功","type":"success"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"fail","label":"显示错误","type":"error"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"retry","label":"重试次数超限?","type":"decision"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"lock","label":"账户锁定","type":"error"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"end","label":"结束","type":"terminal-end"}'
 
 # Add edges
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"start","to":"input"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"input","to":"validate"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"validate","to":"check"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"check","to":"ok","label":"是","color":"green"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"check","to":"fail","label":"否","color":"red"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"fail","to":"retry"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"retry","to":"input","label":"否"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"retry","to":"lock","label":"是","color":"red"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"ok","to":"end"}'
-curl -s 127.0.0.1:6100/cmd -d '{"cmd":"edge","from":"lock","to":"end"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"start","to":"input"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"input","to":"validate"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"validate","to":"check"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"check","to":"ok","label":"是","color":"green"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"check","to":"fail","label":"否","color":"red"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"fail","to":"retry"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"retry","to":"input","label":"否"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"retry","to":"lock","label":"是","color":"red"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"ok","to":"end"}'
+curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"lock","to":"end"}'
 ```
