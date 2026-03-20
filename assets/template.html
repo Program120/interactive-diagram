@@ -484,13 +484,25 @@ function disconnectSSE() {
 
 // Release SSE connection when tab is hidden to free browser connection pool
 // (browsers limit ~6 concurrent HTTP/1.1 connections per domain)
+// Use a 30s delay so short switches (e.g. back to terminal for curl export) still work
+let _disconnectTimer = null;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    disconnectSSE();
+    _disconnectTimer = setTimeout(() => {
+      _disconnectTimer = null;
+      disconnectSSE();
+    }, 30000);
   } else {
-    // Reconnect and catch up on missed commands
-    _stateRestored = false;
-    connectSSE();
+    // Cancel pending disconnect if user comes back quickly
+    if (_disconnectTimer) {
+      clearTimeout(_disconnectTimer);
+      _disconnectTimer = null;
+    }
+    // Reconnect if we were actually disconnected
+    if (!_eventSource) {
+      _stateRestored = false;
+      connectSSE();
+    }
   }
 });
 
