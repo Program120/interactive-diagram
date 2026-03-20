@@ -130,6 +130,9 @@ Export diagrams directly to files on disk via curl — no browser interaction ne
 # Export as PNG
 curl -s 127.0.0.1:6100/export -d '{"format":"png","path":"/tmp/diagram.png"}'
 
+# Export a sharper PNG (2x)
+curl -s 127.0.0.1:6100/export -d '{"format":"png","path":"/tmp/diagram@2x.png","ratio":2}'
+
 # Export as SVG
 curl -s 127.0.0.1:6100/export -d '{"format":"svg","path":"/tmp/diagram.svg"}'
 
@@ -147,6 +150,8 @@ curl -s '127.0.0.1:6100/export?s=arch' -d '{"format":"drawio","path":"~/arch.dra
 ```
 
 Supported formats: `png`, `svg`, `json`, `drawio`
+
+PNG export defaults to a high-DPI ratio so output is sharper on Retina/high-density displays. You can override it with `ratio`, and also pass `padding` / `backgroundColor` for PNG exports.
 
 ## Example
 

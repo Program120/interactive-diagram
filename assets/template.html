@@ -94,6 +94,7 @@ const state = { direction: 'TB', _isRestoring: false };
 let graph = null;
 let contextTarget = null;
 let clipboard = [];
+const PNG_EXPORT_DEFAULT_RATIO = Math.max(window.devicePixelRatio || 1, 2);
 
 const NODE_TYPES = {
   'process':      { width: 120, height: 50, body: { fill: '#fff', stroke: '#4096ff', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
@@ -509,13 +510,13 @@ function handleCommand(cmd) {
         autoLayout();
         break;
       case 'export':
-        if (cmd.format === 'png') exportPNG();
+        if (cmd.format === 'png') exportPNG(cmd);
         else if (cmd.format === 'svg') exportSVG();
         else if (cmd.format === 'drawio') drawioDownload();
         else exportJSON();
         break;
       case 'export-to-server':
-        exportToServer(cmd.format, cmd.requestId);
+        exportToServer(cmd.format, cmd.requestId, cmd);
         break;
     }
   } catch (err) {
@@ -531,16 +532,35 @@ function debounceLayout() {
 // ============================================================
 // Export
 // ============================================================
-function exportPNG() {
+function exportPNG(options = {}) {
+  // Save current viewport state and reset to 1:1 so X6 export calculates correctly
+  const currentZoom = graph.zoom();
+  const currentTranslate = graph.translate();
+  graph.zoomTo(1);
+  graph.translate(0, 0);
+
+  const ratio = Number(options.ratio);
+  const padding = Number(options.padding);
+  const exportOpts = {
+    backgroundColor: options.backgroundColor || '#f0f2f5',
+    padding: Number.isFinite(padding) && padding >= 0 ? padding : 20,
+    ratio: Number.isFinite(ratio) && ratio > 0 ? ratio : PNG_EXPORT_DEFAULT_RATIO,
+  };
+  console.log('[diagram] PNG export options:', JSON.stringify(exportOpts));
+
   graph.toPNG((dataUri) => {
+    // Restore viewport
+    graph.zoomTo(currentZoom);
+    graph.translate(currentTranslate.tx, currentTranslate.ty);
+
     const a = document.createElement('a'); a.download = 'diagram.png'; a.href = dataUri; a.click();
-  }, { backgroundColor: '#f0f2f5', padding: 20 });
+  }, exportOpts);
 }
 function exportSVG() {
   graph.toSVG((svg) => {
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     const a = document.createElement('a'); a.download = 'diagram.svg'; a.href = URL.createObjectURL(blob); a.click();
-  });
+  }, { padding: 20 });
 }
 function exportJSON() {
   const data = graph.toJSON();
@@ -548,7 +568,7 @@ function exportJSON() {
   const a = document.createElement('a'); a.download = 'diagram.json'; a.href = URL.createObjectURL(blob); a.click();
 }
 
-function exportToServer(format, requestId) {
+function exportToServer(format, requestId, options = {}) {
   const sendResult = (data, error) => {
     fetch('/export-result', {
       method: 'POST',
@@ -558,9 +578,26 @@ function exportToServer(format, requestId) {
   };
   try {
     if (format === 'png') {
-      graph.toPNG((dataUri) => { sendResult(dataUri, null); }, { backgroundColor: '#f0f2f5', padding: 20 });
+      const currentZoom = graph.zoom();
+      const currentTranslate = graph.translate();
+      graph.zoomTo(1);
+      graph.translate(0, 0);
+
+      const ratio = Number(options.ratio);
+      const padding = Number(options.padding);
+      const exportOpts = {
+        backgroundColor: options.backgroundColor || '#f0f2f5',
+        padding: Number.isFinite(padding) && padding >= 0 ? padding : 20,
+        ratio: Number.isFinite(ratio) && ratio > 0 ? ratio : PNG_EXPORT_DEFAULT_RATIO,
+      };
+
+      graph.toPNG((dataUri) => {
+        graph.zoomTo(currentZoom);
+        graph.translate(currentTranslate.tx, currentTranslate.ty);
+        sendResult(dataUri, null);
+      }, exportOpts);
     } else if (format === 'svg') {
-      graph.toSVG((svg) => { sendResult(svg, null); });
+      graph.toSVG((svg) => { sendResult(svg, null); }, { padding: 20 });
     } else if (format === 'drawio') {
       const xml = generateDrawioXml();
       sendResult(xml || '', xml ? null : 'No nodes to export');

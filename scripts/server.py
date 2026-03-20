@@ -260,6 +260,9 @@ class Handler(BaseHTTPRequestHandler):
             "cmd": "export-to-server",
             "format": fmt,
             "requestId": req_id,
+            "ratio": params.get("ratio"),
+            "padding": params.get("padding"),
+            "backgroundColor": params.get("backgroundColor"),
         })
         with lock:
             sess = _get_session(sid)
