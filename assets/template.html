@@ -381,10 +381,18 @@ function autoLayout() {
     if (pos) n.position(pos.x - pos.width / 2, pos.y - pos.height / 2);
   });
 
-  // Assign ports for ALL edges based on relative node positions.
-  // Uses prop() to update ports without resetting edge connections.
-  // Key rule: back-edges (going against layout direction) must enter target
-  // from a SIDE port, not the main flow port, to avoid overlap.
+  assignEdgePorts();
+
+  graph.stopBatch('layout');
+  setTimeout(() => fitView(), 100);
+  // Save positions to server so refresh preserves layout
+  saveNodePositions();
+}
+
+function assignEdgePorts() {
+  const edges = graph.getEdges();
+  const isVert = (state.direction || 'TB') === 'TB' || state.direction === 'BT';
+  // Step 1: Assign ports based on relative node positions
   edges.forEach(e => {
     const srcNode = graph.getCellById(e.getSourceCellId());
     const tgtNode = graph.getCellById(e.getTargetCellId());
@@ -396,42 +404,25 @@ function autoLayout() {
     const dx = tcx - scx, dy = tcy - scy;
     let srcPort, tgtPort;
     const absDx = Math.abs(dx), absDy = Math.abs(dy);
-    const isBackEdge = isVertical ? (dy < -30) : (dx < -30);
-
+    const isBackEdge = isVert ? (dy < -30) : (dx < -30);
     if (isBackEdge) {
-      // Back-edge: source exits from top (going upward), target enters from SIDE (not bottom)
-      if (isVertical) {
-        srcPort = 'pt';
-        tgtPort = dx > 0 ? 'pl' : 'pr'; // enter from the side facing the source
-      } else {
-        srcPort = 'pl';
-        tgtPort = dy > 0 ? 'pt' : 'pb';
-      }
+      if (isVert) { srcPort = 'pt'; tgtPort = dx > 0 ? 'pl' : 'pr'; }
+      else { srcPort = 'pl'; tgtPort = dy > 0 ? 'pt' : 'pb'; }
     } else if (absDy < 20 && absDx > 30) {
-      // Same rank horizontal
-      srcPort = dx > 0 ? 'pr' : 'pl';
-      tgtPort = dx > 0 ? 'pl' : 'pr';
+      srcPort = dx > 0 ? 'pr' : 'pl'; tgtPort = dx > 0 ? 'pl' : 'pr';
     } else if (absDx < 20 && absDy > 30) {
-      // Same column vertical
-      srcPort = dy > 0 ? 'pb' : 'pt';
-      tgtPort = dy > 0 ? 'pt' : 'pb';
+      srcPort = dy > 0 ? 'pb' : 'pt'; tgtPort = dy > 0 ? 'pt' : 'pb';
     } else if (absDy > absDx) {
-      // Primarily vertical
-      srcPort = dy > 0 ? 'pb' : 'pt';
-      tgtPort = dy > 0 ? 'pt' : 'pb';
+      srcPort = dy > 0 ? 'pb' : 'pt'; tgtPort = dy > 0 ? 'pt' : 'pb';
     } else {
-      // Primarily horizontal
-      srcPort = dx > 0 ? 'pr' : 'pl';
-      tgtPort = dx > 0 ? 'pl' : 'pr';
+      srcPort = dx > 0 ? 'pr' : 'pl'; tgtPort = dx > 0 ? 'pl' : 'pr';
     }
     e.prop('source/port', srcPort);
     e.prop('target/port', tgtPort);
   });
-
-  // Fix in/out port conflicts: incoming and outgoing edges must NOT share the same port.
-  // Same-direction edges sharing a port is fine (in+in OK, out+out OK, in+out NOT OK).
-  const altPorts = { pb: 'pr', pt: 'pl', pl: 'pt', pr: 'pb' };
-  const nodePortUsage = {}; // nodeId -> { portId: { in: bool, out: bool } }
+  // Step 2: Fix in/out conflicts — outgoing edge must not share port with incoming edge
+  const altPorts = { pb: 'pr', pt: 'pl', pl: 'pb', pr: 'pt' };
+  const nodePortUsage = {};
   edges.forEach(e => {
     const sId = e.getSourceCellId(), sPort = e.getSourcePortId();
     const tId = e.getTargetCellId(), tPort = e.getTargetPortId();
@@ -444,7 +435,6 @@ function autoLayout() {
       (u[tPort] = u[tPort] || { in: false, out: false }).in = true;
     }
   });
-  // For each conflict (port has both in and out), move the outgoing edges to an alt port
   edges.forEach(e => {
     const sId = e.getSourceCellId(), sPort = e.getSourcePortId();
     if (!sId || !sPort) return;
@@ -454,11 +444,6 @@ function autoLayout() {
       if (alt) e.prop('source/port', alt);
     }
   });
-
-  graph.stopBatch('layout');
-  setTimeout(() => fitView(), 100);
-  // Save positions to server so refresh preserves layout
-  saveNodePositions();
 }
 
 function saveNodePositions() {
@@ -573,7 +558,7 @@ function connectSSE() {
         _stateRestored = true;
         // Only auto-layout if no saved positions exist
         if (graph.getNodes().length > 0 && !hasPositions) autoLayout();
-        else if (graph.getNodes().length > 0) fitView();
+        else if (graph.getNodes().length > 0) { assignEdgePorts(); fitView(); }
       })
       .catch(err => console.error('[diagram] restore error:', err));
   }
