@@ -235,26 +235,25 @@ function initGraph() {
     ports.forEach(p => { node.setPortProp(p.id, 'attrs/circle/stroke', '#ccc'); node.setPortProp(p.id, 'attrs/circle/r', 4); });
   });
 
-  // Edge hover: show draggable arrowheads to reconnect source/target ports
-  graph.on('edge:mouseenter', ({ edge }) => {
-    edge.addTools([
-      { name: 'source-arrowhead', args: { attrs: { fill: '#4096ff', cursor: 'move' } } },
-      { name: 'target-arrowhead', args: { attrs: { fill: '#4096ff', cursor: 'move' } } },
-    ]);
-  });
-  graph.on('edge:mouseleave', ({ edge }) => {
-    if (!graph.isSelected(edge)) edge.removeTools();
-  });
+  // Edge arrowhead tools for reconnecting source/target ports
+  const _arrowTools = [
+    { name: 'source-arrowhead', args: { attrs: { d: 'M 0 -6 L 12 0 L 0 6 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
+    { name: 'target-arrowhead', args: { attrs: { d: 'M 0 -6 L 12 0 L 0 6 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
+  ];
+  graph.on('edge:mouseenter', ({ edge }) => { if (!edge.hasTools()) edge.addTools(_arrowTools); });
+  graph.on('edge:mouseleave', ({ edge }) => { if (!graph.isSelected(edge)) edge.removeTools(); });
 
-  // Edge click to select + highlight
+  // Edge click to select + highlight + keep arrowhead tools
   graph.on('edge:click', ({ edge }) => { graph.cleanSelection(); graph.select(edge); });
   graph.on('edge:selected', ({ edge }) => {
     edge._origStroke = edge.attr('line/stroke');
     edge._origWidth = edge.attr('line/strokeWidth');
     edge.attr('line/strokeWidth', 3);
+    if (!edge.hasTools()) edge.addTools(_arrowTools);
   });
   graph.on('edge:unselected', ({ edge }) => {
     edge.attr('line/strokeWidth', edge._origWidth || 2);
+    edge.removeTools();
   });
 
   // Double-click edit node
