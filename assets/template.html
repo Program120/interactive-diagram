@@ -428,6 +428,33 @@ function autoLayout() {
     e.prop('target/port', tgtPort);
   });
 
+  // Fix in/out port conflicts: incoming and outgoing edges must NOT share the same port.
+  // Same-direction edges sharing a port is fine (in+in OK, out+out OK, in+out NOT OK).
+  const altPorts = { pb: 'pr', pt: 'pl', pl: 'pt', pr: 'pb' };
+  const nodePortUsage = {}; // nodeId -> { portId: { in: bool, out: bool } }
+  edges.forEach(e => {
+    const sId = e.getSourceCellId(), sPort = e.getSourcePortId();
+    const tId = e.getTargetCellId(), tPort = e.getTargetPortId();
+    if (sId && sPort) {
+      const u = (nodePortUsage[sId] = nodePortUsage[sId] || {});
+      (u[sPort] = u[sPort] || { in: false, out: false }).out = true;
+    }
+    if (tId && tPort) {
+      const u = (nodePortUsage[tId] = nodePortUsage[tId] || {});
+      (u[tPort] = u[tPort] || { in: false, out: false }).in = true;
+    }
+  });
+  // For each conflict (port has both in and out), move the outgoing edges to an alt port
+  edges.forEach(e => {
+    const sId = e.getSourceCellId(), sPort = e.getSourcePortId();
+    if (!sId || !sPort) return;
+    const usage = nodePortUsage[sId]?.[sPort];
+    if (usage && usage.in && usage.out) {
+      const alt = altPorts[sPort];
+      if (alt) e.prop('source/port', alt);
+    }
+  });
+
   graph.stopBatch('layout');
   setTimeout(() => fitView(), 100);
   // Save positions to server so refresh preserves layout
@@ -600,13 +627,14 @@ function disconnectSSE() {
 // preventing browser's per-domain connection limit (6) from being exhausted.
 // ============================================================
 const _tabId = Math.random().toString(36).slice(2);
-const _bcSession = new URLSearchParams(window.location.search).get('s') || 'default';
-const _bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('diagram-sse-' + _bcSession) : null;
+// GLOBAL channel across all sessions — ensures only 1 tab holds SSE at a time
+const _bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('diagram-sse') : null;
+let _hideTimer = null;
 
 if (_bc) {
   _bc.onmessage = (e) => {
     if (e.data.type === 'claim-sse' && e.data.tabId !== _tabId) {
-      // Another tab with the SAME session is claiming the SSE connection, yield ours
+      // Another tab (any session) is claiming SSE, yield ours immediately
       disconnectSSE();
     }
   };
@@ -618,15 +646,18 @@ function claimSSE() {
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    // This tab became visible — claim the SSE connection
+    // This tab became visible — claim SSE, all other tabs yield
+    if (_hideTimer) { clearTimeout(_hideTimer); _hideTimer = null; }
     claimSSE();
     if (!_eventSource) {
       _stateRestored = false;
       connectSSE();
     }
+  } else {
+    // Hidden — disconnect SSE after 5s to free connection slot.
+    // Delay allows brief terminal switches (e.g. for export) to keep working.
+    _hideTimer = setTimeout(() => { disconnectSSE(); _hideTimer = null; }, 5000);
   }
-  // When hidden: do nothing immediately. SSE stays alive until another tab claims it.
-  // This keeps export working when user switches to terminal briefly.
 });
 
 // ============================================================
