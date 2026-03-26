@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Interactive Diagram</title>
-<script src="https://unpkg.com/@antv/x6@2/dist/index.js"></script>
-<script src="https://unpkg.com/@antv/x6-plugin-selection@2/dist/index.js"></script>
-<script src="https://unpkg.com/@antv/x6-plugin-history@2/dist/index.js"></script>
-<script src="https://unpkg.com/@antv/x6-plugin-snapline@2/dist/index.js"></script>
-<script src="https://unpkg.com/@antv/x6-plugin-export@2/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6@2.19.2/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-selection@2.2.2/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-history@2.2.4/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-snapline@2.1.7/dist/index.js"></script>
+<script src="https://unpkg.com/@antv/x6-plugin-export@2.1.6/dist/index.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -40,6 +40,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;z-index:300;opacity:0;transition:opacity .3s}
 .toast.show{opacity:1}
 .zoom-indicator{position:fixed;bottom:16px;right:16px;background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:4px 10px;font-size:11px;color:#8c8c8c;z-index:99}
+.inline-editor-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.15);z-index:300;display:flex;align-items:center;justify-content:center}
+.inline-editor{background:#fff;border:1px solid #d9d9d9;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:16px;min-width:280px;display:flex;flex-direction:column;gap:10px}
+.inline-editor label{font-size:13px;font-weight:500;color:#1a1a1a}
+.inline-editor input{padding:8px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;outline:none;transition:border-color .2s}
+.inline-editor input:focus{border-color:#4096ff;box-shadow:0 0 0 2px rgba(64,150,255,.15)}
+.inline-editor .editor-btns{display:flex;gap:8px;justify-content:flex-end}
+.inline-editor .editor-btns button{padding:5px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #d9d9d9;background:#fff;color:#555;transition:all .15s}
+.inline-editor .editor-btns button.primary{background:#4096ff;color:#fff;border-color:#4096ff}
+.inline-editor .editor-btns button.primary:hover{background:#1677ff}
+.inline-editor .editor-btns button:hover{border-color:#4096ff}
 </style>
 </head>
 <body>
@@ -185,7 +195,7 @@ function initGraph() {
     panning: { enabled: true },
     mousewheel: { enabled: true, zoomAtMousePosition: true, minScale: 0.2, maxScale: 3, factor: 1.02 },
     connecting: {
-      router: { name: 'manhattan', args: { padding: 20 } },
+      router: { name: 'manhattan', args: { padding: 30, step: 15 } },
       connector: { name: 'rounded', args: { radius: 8 } },
       snap: { radius: 30 },
       allowBlank: false,
@@ -239,19 +249,17 @@ function initGraph() {
   // Double-click edit node
   graph.on('node:dblclick', ({ node }) => {
     const text = node.attr('label/text') || '';
-    const newText = prompt('编辑标签', text);
-    if (newText !== null) node.attr('label/text', newText);
+    showInlineEditor('编辑节点标签', text, (newText) => { node.attr('label/text', newText); });
   });
 
   // Double-click edit edge
   graph.on('edge:dblclick', ({ edge }) => {
     const labels = edge.getLabels();
     const text = labels.length > 0 ? (labels[0].attrs?.label?.text || '') : '';
-    const newText = prompt('编辑标签', text);
-    if (newText !== null) {
+    showInlineEditor('编辑连线标签', text, (newText) => {
       if (labels.length > 0) edge.setLabelAt(0, { attrs: { label: { text: newText } } });
       else edge.appendLabel({ attrs: { label: { text: newText } } });
-    }
+    });
   });
 
   // Right-click context menu
@@ -272,6 +280,13 @@ function initGraph() {
     else if (mod && e.key === 'z' && e.shiftKey) { doRedo(); e.preventDefault(); }
     else if (mod && e.key === 'y') { doRedo(); e.preventDefault(); }
     else if (mod && e.key === 'a') { graph.select(graph.getCells()); e.preventDefault(); }
+  });
+
+  // Save positions after user drags nodes
+  let _dragSaveTimer = null;
+  graph.on('node:moved', () => {
+    clearTimeout(_dragSaveTimer);
+    _dragSaveTimer = setTimeout(() => saveNodePositions(), 500);
   });
 
   // Undo/redo button state
@@ -320,7 +335,7 @@ function autoLayout() {
   if (nodes.length === 0) return;
   console.log('[diagram] autoLayout:', nodes.length, 'nodes,', edges.length, 'edges');
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: state.direction || 'TB', nodesep: 100, ranksep: 100, marginx: 60, marginy: 60 });
+  g.setGraph({ rankdir: state.direction || 'TB', nodesep: 100, ranksep: 90, marginx: 60, marginy: 60, align: 'DL' });
   g.setDefaultEdgeLabel(() => ({}));
   nodes.forEach(n => {
     const size = n.getSize();
@@ -332,6 +347,34 @@ function autoLayout() {
     if (src && tgt) g.setEdge(src, tgt);
   });
   dagre.layout(g);
+  const isVertical = (state.direction || 'TB') === 'TB' || state.direction === 'BT';
+
+  // Post-layout: move decision branch targets to the SAME rank as their decision parent
+  // This makes "格式正确? → 否 → 格式错误提示" appear at the same horizontal level
+  const branchNodes = new Set();
+  nodes.forEach(n => {
+    if (n.getData()?.diagramType !== 'decision') return;
+    const outEdges = graph.getOutgoingEdges(n) || [];
+    if (outEdges.length < 2) return;
+    const decPos = g.node(n.id);
+    if (!decPos) return;
+    // First outgoing edge = main flow (stays at dagre position), rest = branches
+    for (let i = 1; i < outEdges.length; i++) {
+      const tgtId = outEdges[i].getTargetCellId();
+      const tgtPos = g.node(tgtId);
+      if (!tgtPos) continue;
+      if (isVertical) {
+        tgtPos.y = decPos.y; // Same Y = same horizontal level
+        // Push to the right of the decision, with gap
+        if (tgtPos.x <= decPos.x) tgtPos.x = decPos.x + decPos.width + 120;
+      } else {
+        tgtPos.x = decPos.x;
+        if (tgtPos.y <= decPos.y) tgtPos.y = decPos.y + decPos.height + 120;
+      }
+      branchNodes.add(tgtId);
+    }
+  });
+
   graph.startBatch('layout');
   nodes.forEach(n => {
     const pos = g.node(n.id);
@@ -339,6 +382,22 @@ function autoLayout() {
   });
   graph.stopBatch('layout');
   setTimeout(() => fitView(), 100);
+  // Save positions to server so refresh preserves layout
+  saveNodePositions();
+}
+
+function saveNodePositions() {
+  if (!_sseSession) return;
+  const positions = {};
+  graph.getNodes().forEach(n => {
+    const pos = n.getPosition();
+    positions[n.id] = { x: Math.round(pos.x), y: Math.round(pos.y) };
+  });
+  fetch('/save-positions?s=' + _sseSession, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(positions),
+  }).catch(() => {});
 }
 
 // ============================================================
@@ -374,10 +433,10 @@ function hideContextMenu() {
 }
 function cmEdit() {
   if (!contextTarget) return;
-  const text = contextTarget.attr('label/text') || '';
-  const newText = prompt('编辑标签', text);
-  if (newText !== null) contextTarget.attr('label/text', newText);
+  const node = contextTarget;
+  const text = node.attr('label/text') || '';
   hideContextMenu();
+  showInlineEditor('编辑节点标签', text, (newText) => { node.attr('label/text', newText); });
 }
 function cmDuplicate() {
   if (!contextTarget) return;
@@ -432,10 +491,14 @@ function connectSSE() {
       .then(cmds => {
         console.log('[diagram] restoring', cmds.length, 'commands');
         state._isRestoring = true;
+        // Check if any node has saved positions (user has dragged before)
+        const hasPositions = cmds.some(c => c.cmd === 'node' && c._x != null);
         cmds.forEach(cmd => handleCommand(cmd));
         state._isRestoring = false;
         _stateRestored = true;
-        if (graph.getNodes().length > 0) autoLayout();
+        // Only auto-layout if no saved positions exist
+        if (graph.getNodes().length > 0 && !hasPositions) autoLayout();
+        else if (graph.getNodes().length > 0) fitView();
       })
       .catch(err => console.error('[diagram] restore error:', err));
   }
@@ -489,12 +552,13 @@ function disconnectSSE() {
 // preventing browser's per-domain connection limit (6) from being exhausted.
 // ============================================================
 const _tabId = Math.random().toString(36).slice(2);
-const _bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('diagram-sse') : null;
+const _bcSession = new URLSearchParams(window.location.search).get('s') || 'default';
+const _bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('diagram-sse-' + _bcSession) : null;
 
 if (_bc) {
   _bc.onmessage = (e) => {
     if (e.data.type === 'claim-sse' && e.data.tabId !== _tabId) {
-      // Another tab is claiming the SSE connection, yield ours
+      // Another tab with the SAME session is claiming the SSE connection, yield ours
       disconnectSSE();
     }
   };
@@ -534,28 +598,20 @@ function handleCommand(cmd) {
         const existing = graph.getCellById(cmd.id);
         if (existing) {
           if (cmd.label) existing.attr('label/text', cmd.label);
+          if (cmd._x != null) existing.position(cmd._x, cmd._y);
         } else {
-          const config = buildNodeConfig(cmd.id, type, cmd.label || '', cmd.x || 0, cmd.y || 0);
+          const nx = cmd._x != null ? cmd._x : (cmd.x || 0);
+          const ny = cmd._x != null ? cmd._y : (cmd.y || 0);
+          const config = buildNodeConfig(cmd.id, type, cmd.label || '', nx, ny);
           graph.addNode(config);
         }
         if (!state._isRestoring) debounceLayout();
         break;
       }
       case 'edge': {
-        // Smart port selection: decision nodes use left/right for multiple outgoing edges
-        let sourcePort = 'pb';
-        let targetPort = 'pt';
-        const sourceCell = graph.getCellById(cmd.from);
-        if (sourceCell && sourceCell.getData()?.diagramType === 'decision') {
-          const existingOutEdges = graph.getOutgoingEdges(sourceCell) || [];
-          const usedPorts = existingOutEdges.map(e => e.getSourcePortId());
-          if (!usedPorts.includes('pl')) sourcePort = 'pl';
-          else if (!usedPorts.includes('pr')) sourcePort = 'pr';
-          else sourcePort = 'pb';
-        }
         const edgeConfig = {
-          source: { cell: cmd.from, port: sourcePort },
-          target: { cell: cmd.to, port: targetPort },
+          source: cmd.from,
+          target: cmd.to,
           attrs: { line: { stroke: cmd.color || '#8c8c8c', strokeWidth: 2, targetMarker: { name: 'classic', size: 8 } } },
         };
         if (cmd.label) {
@@ -606,29 +662,35 @@ function debounceLayout() {
 // ============================================================
 // Export
 // ============================================================
-function exportPNG(options = {}) {
-  // Save current viewport state and reset to 1:1 so X6 export calculates correctly
-  const currentZoom = graph.zoom();
-  const currentTranslate = graph.translate();
-  graph.zoomTo(1);
-  graph.translate(0, 0);
-
+function _buildPngOptions(options = {}) {
   const ratio = Number(options.ratio);
   const padding = Number(options.padding);
-  const exportOpts = {
+  return {
     backgroundColor: options.backgroundColor || '#f0f2f5',
     padding: Number.isFinite(padding) && padding >= 0 ? padding : 20,
     ratio: Number.isFinite(ratio) && ratio > 0 ? ratio : PNG_EXPORT_DEFAULT_RATIO,
   };
-  console.log('[diagram] PNG export options:', JSON.stringify(exportOpts));
+}
 
+function _exportPngWithCallback(options, callback) {
+  // Save viewport, reset to 1:1 for correct export, then restore
+  const currentZoom = graph.zoom();
+  const currentTranslate = graph.translate();
+  graph.zoomTo(1);
+  graph.translate(0, 0);
+  const exportOpts = _buildPngOptions(options);
+  console.log('[diagram] PNG export options:', JSON.stringify(exportOpts));
   graph.toPNG((dataUri) => {
-    // Restore viewport
     graph.zoomTo(currentZoom);
     graph.translate(currentTranslate.tx, currentTranslate.ty);
-
-    const a = document.createElement('a'); a.download = 'diagram.png'; a.href = dataUri; a.click();
+    callback(dataUri);
   }, exportOpts);
+}
+
+function exportPNG(options = {}) {
+  _exportPngWithCallback(options, (dataUri) => {
+    const a = document.createElement('a'); a.download = 'diagram.png'; a.href = dataUri; a.click();
+  });
 }
 function exportSVG() {
   graph.toSVG((svg) => {
@@ -652,24 +714,7 @@ function exportToServer(format, requestId, options = {}) {
   };
   try {
     if (format === 'png') {
-      const currentZoom = graph.zoom();
-      const currentTranslate = graph.translate();
-      graph.zoomTo(1);
-      graph.translate(0, 0);
-
-      const ratio = Number(options.ratio);
-      const padding = Number(options.padding);
-      const exportOpts = {
-        backgroundColor: options.backgroundColor || '#f0f2f5',
-        padding: Number.isFinite(padding) && padding >= 0 ? padding : 20,
-        ratio: Number.isFinite(ratio) && ratio > 0 ? ratio : PNG_EXPORT_DEFAULT_RATIO,
-      };
-
-      graph.toPNG((dataUri) => {
-        graph.zoomTo(currentZoom);
-        graph.translate(currentTranslate.tx, currentTranslate.ty);
-        sendResult(dataUri, null);
-      }, exportOpts);
+      _exportPngWithCallback(options, (dataUri) => { sendResult(dataUri, null); });
     } else if (format === 'svg') {
       graph.toSVG((svg) => { sendResult(svg, null); }, { padding: 20 });
     } else if (format === 'drawio') {
@@ -742,6 +787,21 @@ document.addEventListener('click', (e) => { if (!e.target.closest('.dropdown')) 
 // Util
 // ============================================================
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function showInlineEditor(title, value, onConfirm) {
+  const overlay = document.createElement('div');
+  overlay.className = 'inline-editor-overlay';
+  overlay.innerHTML = '<div class="inline-editor"><label>' + escHtml(title) + '</label><input type="text" value="' + escHtml(value) + '"><div class="editor-btns"><button class="cancel">取消</button><button class="primary confirm">确定</button></div></div>';
+  document.body.appendChild(overlay);
+  const input = overlay.querySelector('input');
+  input.focus();
+  input.select();
+  const close = () => { overlay.remove(); };
+  const confirm = () => { onConfirm(input.value); close(); };
+  overlay.querySelector('.cancel').onclick = close;
+  overlay.querySelector('.confirm').onclick = confirm;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirm(); else if (e.key === 'Escape') close(); });
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+}
 function showToast(msg) {
   let t = document.getElementById('toast');
   if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
@@ -753,7 +813,14 @@ function showToast(msg) {
 // Boot
 // ============================================================
 window.addEventListener('DOMContentLoaded', () => {
-  console.log('[diagram] DOMContentLoaded, X6 version:', typeof X6 !== 'undefined' ? 'loaded' : 'MISSING');
+  const missing = [];
+  if (typeof X6 === 'undefined') missing.push('X6');
+  if (typeof dagre === 'undefined') missing.push('dagre');
+  if (missing.length > 0) {
+    document.getElementById('container').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;color:#ff4d4f"><div style="font-size:18px;font-weight:600">依赖加载失败</div><div style="color:#8c8c8c;font-size:13px">无法加载: ' + missing.join(', ') + '。请检查网络连接后刷新页面。</div></div>';
+    return;
+  }
+  console.log('[diagram] DOMContentLoaded');
   initGraph();
   setupNodePanel();
   connectSSE();

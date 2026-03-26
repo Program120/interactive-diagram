@@ -31,6 +31,10 @@ sessions: dict[str, dict] = {}
 export_requests: dict[str, dict] = {}
 export_lock = threading.Lock()
 
+# Debounced save: per-session timers
+_save_timers: dict[str, threading.Timer] = {}
+_save_timers_lock = threading.Lock()
+
 
 def _get_session(sid: str) -> dict:
     """Get or create a session."""
@@ -40,14 +44,28 @@ def _get_session(sid: str) -> dict:
     return sessions[sid]
 
 
-def _save_session(sid: str):
-    """Persist session state to disk."""
+def _save_session_now(sid: str):
+    """Persist session state to disk immediately."""
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         f = STATE_DIR / f"{sid}.json"
-        f.write_text(json.dumps(sessions[sid]["state"], ensure_ascii=False))
+        with lock:
+            data = json.dumps(sessions[sid]["state"], ensure_ascii=False)
+        f.write_text(data)
     except Exception:
         pass
+
+
+def _save_session(sid: str):
+    """Debounced save: coalesces rapid writes into a single disk write after 500ms."""
+    with _save_timers_lock:
+        existing = _save_timers.get(sid)
+        if existing:
+            existing.cancel()
+        t = threading.Timer(0.5, _save_session_now, args=(sid,))
+        t.daemon = True
+        _save_timers[sid] = t
+        t.start()
 
 
 def _load_session(sid: str):
@@ -107,6 +125,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_export(sid)
         elif path == "/export-result":
             self._handle_export_result()
+        elif path == "/save-positions":
+            self._handle_save_positions(sid)
         else:
             self.send_error(404)
 
@@ -137,8 +157,12 @@ class Handler(BaseHTTPRequestHandler):
             sess["clients"].append(q)
         try:
             while True:
-                data = q.get()
-                self.wfile.write(f"data: {data}\n\n".encode())
+                try:
+                    data = q.get(timeout=30)
+                    self.wfile.write(f"data: {data}\n\n".encode())
+                except queue.Empty:
+                    # Heartbeat: detect dead connections & prevent proxy timeouts
+                    self.wfile.write(b": heartbeat\n\n")
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
@@ -202,14 +226,13 @@ class Handler(BaseHTTPRequestHandler):
             if cmd.get("cmd") == "clear":
                 sess["state"].clear()
             elif cmd.get("cmd") == "init":
-                # init clears previous state for this session
                 sess["state"].clear()
                 sess["state"].append(cmd)
             else:
                 sess["state"].append(cmd)
-            _save_session(sid)
             for q in sess["clients"]:
                 q.put(body)
+        _save_session(sid)
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self._cors()
@@ -220,16 +243,39 @@ class Handler(BaseHTTPRequestHandler):
         with lock:
             sess = _get_session(sid)
             sess["state"].clear()
-            _save_session(sid)
             clear_cmd = json.dumps({"cmd": "clear"})
             for q in sess["clients"]:
                 q.put(clear_cmd)
+        _save_session(sid)
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self._cors()
         self.end_headers()
         self.wfile.write(b'{"ok":true}')
 
+
+    def _handle_save_positions(self, sid: str):
+        """Save node positions into state so page refresh preserves layout."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode()
+        try:
+            positions = json.loads(body)  # {node_id: {x, y}, ...}
+        except json.JSONDecodeError:
+            self.send_error(400, "Invalid JSON")
+            return
+        with lock:
+            sess = _get_session(sid)
+            for cmd in sess["state"]:
+                if cmd.get("cmd") == "node" and cmd.get("id") in positions:
+                    pos = positions[cmd["id"]]
+                    cmd["_x"] = pos["x"]
+                    cmd["_y"] = pos["y"]
+        _save_session(sid)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._cors()
+        self.end_headers()
+        self.wfile.write(b'{"ok":true}')
 
     def _handle_export(self, sid: str):
         """Handle export request: broadcast to browser, wait for result, save to disk."""

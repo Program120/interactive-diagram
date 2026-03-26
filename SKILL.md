@@ -66,8 +66,11 @@ sleep 1 && curl -s http://127.0.0.1:6100/status && open 'http://127.0.0.1:6100/?
 
 ### Step 2: Initialize the diagram (SEPARATE Bash call)
 
+**Use a shell variable `S` to avoid repeating the session ID in every curl:**
+
 ```bash
-curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"init","title":"图表标题","direction":"TB"}'
+S=my-diagram
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"init","title":"图表标题","direction":"TB"}'
 ```
 
 Direction options: `TB` (top-bottom), `LR` (left-right), `BT` (bottom-top), `RL` (right-left)
@@ -76,17 +79,17 @@ Direction options: `TB` (top-bottom), `LR` (left-right), `BT` (bottom-top), `RL`
 
 Send each node as an individual curl command. The user will see nodes appear in real-time:
 ```bash
-curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"node","id":"n1","label":"开始","type":"terminal"}'
-curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"node","id":"n2","label":"处理数据","type":"process"}'
-curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"node","id":"n3","label":"是否成功?","type":"decision"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"n1","label":"开始","type":"terminal"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"n2","label":"处理数据","type":"process"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"n3","label":"是否成功?","type":"decision"}'
 ```
 
 ### Step 4: Add edges one by one
 
 ```bash
-curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"edge","from":"n1","to":"n2"}'
-curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"edge","from":"n2","to":"n3","label":"验证"}'
-curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"edge","from":"n3","to":"n4","label":"是","color":"green"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"n1","to":"n2"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"n2","to":"n3","label":"验证"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"n3","to":"n4","label":"是","color":"green"}'
 ```
 
 ### Step 5 (optional): Trigger manual layout
@@ -172,7 +175,7 @@ PNG export defaults to a high-DPI ratio so output is sharper on Retina/high-dens
 1. **ALWAYS use a unique session ID (`?s=xxx`) for every diagram.** Generate a short, descriptive name based on the diagram topic (e.g., `login-flow`, `arch-overview`). NEVER use the default session (omitting `?s=`). All curl commands and browser URLs must include `?s=SESSION_ID`. This prevents diagrams from overwriting each other and ensures each diagram survives server restarts.
 2. **BROWSER MUST BE OPEN BEFORE SENDING COMMANDS TO A NEW SESSION.** For the first diagram or a new session (`?s=xxx`), Step 1 (start server + open browser) MUST be a separate Bash call that completes before Step 2. NEVER combine server start/browser open and diagram commands in a single Bash call. However, if replacing a diagram in an EXISTING session (browser tab already open), just send `init` directly — no need to re-open the browser.
 3. **Send nodes and edges INDIVIDUALLY** — one curl per node, one curl per edge. This creates the real-time incremental effect.
-4. **Keep commands minimal** — only include required fields. Don't add unnecessary whitespace in JSON.
+4. **Keep commands minimal** — only include required fields. Don't add unnecessary whitespace in JSON. Use `S=session-name` shell variable to avoid repeating session ID in every curl.
 5. **Use descriptive IDs** — like `start`, `login`, `validate` instead of `n1`, `n2`, `n3`.
 6. **Auto-layout handles positioning** — do NOT specify `x` or `y` coordinates. Dagre calculates optimal positions.
 7. **Send init first** — always start with an `init` command to clear previous state and set the title.
@@ -198,12 +201,14 @@ This is 90% less than generating a full HTML file (~4000+ tokens).
 - Example:
   ```bash
   # Diagram 1
-  curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"init","title":"流程图"}'
-  # ... add nodes/edges to ?s=login-flow ...
+  S=login-flow
+  curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"init","title":"流程图"}'
+  # ... add nodes/edges ...
 
   # Diagram 2
-  curl -s '127.0.0.1:6100/cmd?s=arch' -d '{"cmd":"init","title":"架构图"}'
-  # ... add nodes/edges to ?s=arch ...
+  S=arch
+  curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"init","title":"架构图"}'
+  # ... add nodes/edges ...
   open 'http://127.0.0.1:6100/?s=arch'  # opens in new tab
   ```
 - To replace the current diagram (same session): just send `init` again — it clears previous state
@@ -242,29 +247,30 @@ and generate a complete HTML file with inline Dagre layout, CSS, and JS.
 curl -s http://127.0.0.1:6100/status 2>/dev/null || python3 ~/.claude/skills/interactive-diagram/scripts/server.py &
 sleep 1 && open 'http://127.0.0.1:6100/?s=login-flow'
 
-# Initialize
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"init","title":"用户登录流程","direction":"TB"}'
+# Initialize (use S variable to avoid repeating session ID)
+S=login-flow
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"init","title":"用户登录流程","direction":"TB"}'
 
 # Add nodes
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"start","label":"开始","type":"terminal"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"input","label":"输入用户名密码","type":"process"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"validate","label":"验证信息","type":"process"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"check","label":"是否正确?","type":"decision"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"ok","label":"登录成功","type":"success"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"fail","label":"显示错误","type":"error"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"retry","label":"重试次数超限?","type":"decision"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"lock","label":"账户锁定","type":"error"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"node","id":"end","label":"结束","type":"terminal-end"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"start","label":"开始","type":"terminal"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"input","label":"输入用户名密码","type":"process"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"validate","label":"验证信息","type":"process"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"check","label":"是否正确?","type":"decision"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"ok","label":"登录成功","type":"success"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"fail","label":"显示错误","type":"error"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"retry","label":"重试次数超限?","type":"decision"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"lock","label":"账户锁定","type":"error"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"node","id":"end","label":"结束","type":"terminal-end"}'
 
 # Add edges
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"start","to":"input"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"input","to":"validate"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"validate","to":"check"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"check","to":"ok","label":"是","color":"green"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"check","to":"fail","label":"否","color":"red"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"fail","to":"retry"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"retry","to":"input","label":"否"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"retry","to":"lock","label":"是","color":"red"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"ok","to":"end"}'
-curl -s '127.0.0.1:6100/cmd?s=login-flow' -d '{"cmd":"edge","from":"lock","to":"end"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"start","to":"input"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"input","to":"validate"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"validate","to":"check"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"check","to":"ok","label":"是","color":"green"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"check","to":"fail","label":"否","color":"red"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"fail","to":"retry"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"retry","to":"input","label":"否"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"retry","to":"lock","label":"是","color":"red"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"ok","to":"end"}'
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"edge","from":"lock","to":"end"}'
 ```
