@@ -408,12 +408,6 @@ function assignEdgePorts() {
     if (isBackEdge) {
       if (isVert) { srcPort = 'pt'; tgtPort = dx > 0 ? 'pl' : 'pr'; }
       else { srcPort = 'pl'; tgtPort = dy > 0 ? 'pt' : 'pb'; }
-    } else if (isVert && dx < -50 && dy > 200) {
-      // Long-distance edge from a RIGHT-side branch node going far DOWN-LEFT to target:
-      // Exit from right port to route along the far right side, avoiding main flow nodes
-      srcPort = 'pr'; tgtPort = 'pt';
-    } else if (!isVert && dy < -50 && dx > 200) {
-      srcPort = 'pb'; tgtPort = 'pl';
     } else if (absDy < 20 && absDx > 30) {
       srcPort = dx > 0 ? 'pr' : 'pl'; tgtPort = dx > 0 ? 'pl' : 'pr';
     } else if (absDx < 20 && absDy > 30) {
