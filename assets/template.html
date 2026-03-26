@@ -240,22 +240,41 @@ function initGraph() {
     ports.forEach(p => { node.setPortProp(p.id, 'attrs/circle/stroke', '#ccc'); node.setPortProp(p.id, 'attrs/circle/r', 4); });
   });
 
-  // Edge tools: vertices (drag waypoints to reshape path) + arrowheads (reconnect)
-  const _edgeTools = [
-    { name: 'vertices', args: { attrs: { r: 5, fill: '#4096ff', stroke: '#fff', strokeWidth: 2, cursor: 'move' } } },
-    { name: 'source-arrowhead', args: { attrs: { d: 'M 0 -5 L 10 0 L 0 5 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
-    { name: 'target-arrowhead', args: { attrs: { d: 'M 0 -5 L 10 0 L 0 5 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
-  ];
-  graph.on('edge:mouseenter', ({ edge }) => { if (!edge.hasTools()) edge.addTools(_edgeTools); });
+  // Edge tools: segments (axis-constrained drag like draw.io) + arrowheads
+  function _getEdgeTools(edge) {
+    // Use segments tool for manual-routed edges, vertices for auto-routed
+    const isManual = edge._manualRoute;
+    const tools = [
+      { name: 'source-arrowhead', args: { attrs: { d: 'M 0 -5 L 10 0 L 0 5 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
+      { name: 'target-arrowhead', args: { attrs: { d: 'M 0 -5 L 10 0 L 0 5 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
+    ];
+    if (isManual) {
+      tools.unshift({ name: 'segments', args: {
+        attrs: { width: 16, height: 6, x: -8, y: -3, rx: 3, fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' },
+        threshold: 20, snapRadius: 10, removeRedundancies: true, stopPropagation: true,
+      }});
+    } else {
+      tools.unshift({ name: 'vertices', args: {
+        attrs: { r: 5, fill: '#4096ff', stroke: '#fff', strokeWidth: 2, cursor: 'move' },
+        addable: true, removable: true, stopPropagation: true,
+      }});
+    }
+    return tools;
+  }
+  graph.on('edge:mouseenter', ({ edge }) => { if (!edge.hasTools()) edge.addTools(_getEdgeTools(edge)); });
   graph.on('edge:mouseleave', ({ edge }) => { if (!graph.isSelected(edge)) edge.removeTools(); });
 
-  // When user adds/moves a vertex, switch edge from auto manhattan to manual routing
+  // When user adds first vertex, bake manhattan path and switch to orth router
   graph.on('edge:change:vertices', ({ edge }) => {
+    if (edge._manualRoute) return;
     const verts = edge.getVertices();
-    if (verts && verts.length > 0 && !edge._manualRoute) {
+    if (verts && verts.length > 0) {
       edge._manualRoute = true;
-      edge.setRouter(null);
+      edge.setRouter('orth');
       edge.setConnector('rounded', { radius: 8 });
+      // Refresh tools to switch from vertices to segments
+      edge.removeTools();
+      edge.addTools(_getEdgeTools(edge));
     }
   });
 
@@ -265,7 +284,7 @@ function initGraph() {
     edge._origStroke = edge.attr('line/stroke');
     edge._origWidth = edge.attr('line/strokeWidth');
     edge.attr('line/strokeWidth', 3);
-    if (!edge.hasTools()) edge.addTools(_edgeTools);
+    if (!edge.hasTools()) edge.addTools(_getEdgeTools(edge));
   });
   graph.on('edge:unselected', ({ edge }) => {
     edge.attr('line/strokeWidth', edge._origWidth || 2);
@@ -565,6 +584,7 @@ function cmEdgeResetRoute() {
   contextEdge.setVertices([]);
   contextEdge.setRouter('manhattan', { padding: 30, step: 15 });
   contextEdge.setConnector('rounded', { radius: 8 });
+  contextEdge.removeTools();
   hideEdgeContextMenu();
 }
 function cmEdgeDelete() {
