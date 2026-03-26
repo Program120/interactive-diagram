@@ -383,6 +383,8 @@ function autoLayout() {
 
   // Assign ports for ALL edges based on relative node positions.
   // Uses prop() to update ports without resetting edge connections.
+  // Key rule: back-edges (going against layout direction) must enter target
+  // from a SIDE port, not the main flow port, to avoid overlap.
   edges.forEach(e => {
     const srcNode = graph.getCellById(e.getSourceCellId());
     const tgtNode = graph.getCellById(e.getTargetCellId());
@@ -393,9 +395,19 @@ function autoLayout() {
     const tcx = tp.x + ts.width / 2, tcy = tp.y + ts.height / 2;
     const dx = tcx - scx, dy = tcy - scy;
     let srcPort, tgtPort;
-    // Determine best ports based on relative position
     const absDx = Math.abs(dx), absDy = Math.abs(dy);
-    if (absDy < 20 && absDx > 30) {
+    const isBackEdge = isVertical ? (dy < -30) : (dx < -30);
+
+    if (isBackEdge) {
+      // Back-edge: source exits from top (going upward), target enters from SIDE (not bottom)
+      if (isVertical) {
+        srcPort = 'pt';
+        tgtPort = dx > 0 ? 'pl' : 'pr'; // enter from the side facing the source
+      } else {
+        srcPort = 'pl';
+        tgtPort = dy > 0 ? 'pt' : 'pb';
+      }
+    } else if (absDy < 20 && absDx > 30) {
       // Same rank horizontal
       srcPort = dx > 0 ? 'pr' : 'pl';
       tgtPort = dx > 0 ? 'pl' : 'pr';
