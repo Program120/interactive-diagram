@@ -93,6 +93,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   <div class="menu-sep"></div>
   <button onclick="cmDelete()" style="color:#ff4d4f">删除</button>
 </div>
+<div class="context-menu" id="edgeContextMenu">
+  <div style="padding:4px 16px;font-size:11px;color:#999">出口方向</div>
+  <button onclick="cmEdgePort('source','pt')">↑ 上</button>
+  <button onclick="cmEdgePort('source','pb')">↓ 下</button>
+  <button onclick="cmEdgePort('source','pl')">← 左</button>
+  <button onclick="cmEdgePort('source','pr')">→ 右</button>
+  <div class="menu-sep"></div>
+  <div style="padding:4px 16px;font-size:11px;color:#999">入口方向</div>
+  <button onclick="cmEdgePort('target','pt')">↑ 上</button>
+  <button onclick="cmEdgePort('target','pb')">↓ 下</button>
+  <button onclick="cmEdgePort('target','pl')">← 左</button>
+  <button onclick="cmEdgePort('target','pr')">→ 右</button>
+  <div class="menu-sep"></div>
+  <button onclick="cmEdgeDelete()" style="color:#ff4d4f">删除</button>
+</div>
 <div id="container"></div>
 <div class="zoom-indicator" id="zoomIndicator">100%</div>
 
@@ -272,14 +287,22 @@ function initGraph() {
     });
   });
 
-  // Right-click context menu
+  // Right-click context menu — nodes
   graph.on('node:contextmenu', ({ node, e }) => {
     e.preventDefault();
     contextTarget = node;
+    hideEdgeContextMenu();
     showContextMenu(e.clientX, e.clientY);
   });
-  graph.on('blank:click', hideContextMenu);
-  graph.on('blank:contextmenu', ({ e }) => { e.preventDefault(); hideContextMenu(); });
+  // Right-click context menu — edges
+  graph.on('edge:contextmenu', ({ edge, e }) => {
+    e.preventDefault();
+    contextEdge = edge;
+    hideContextMenu();
+    showEdgeContextMenu(e.clientX, e.clientY);
+  });
+  graph.on('blank:click', () => { hideContextMenu(); hideEdgeContextMenu(); });
+  graph.on('blank:contextmenu', ({ e }) => { e.preventDefault(); hideContextMenu(); hideEdgeContextMenu(); });
 
   // Keyboard shortcuts (native, since bindKey requires keyboard plugin)
   document.addEventListener('keydown', (e) => {
@@ -524,9 +547,31 @@ function cmDelete() {
   hideContextMenu();
 }
 
-// Close context menu on outside click
+// Edge context menu
+let contextEdge = null;
+function showEdgeContextMenu(x, y) {
+  const menu = document.getElementById('edgeContextMenu');
+  menu.style.left = x + 'px'; menu.style.top = y + 'px';
+  menu.classList.add('show');
+}
+function hideEdgeContextMenu() {
+  document.getElementById('edgeContextMenu').classList.remove('show');
+  contextEdge = null;
+}
+function cmEdgePort(end, port) {
+  if (!contextEdge) return;
+  contextEdge.prop(end + '/port', port);
+  hideEdgeContextMenu();
+}
+function cmEdgeDelete() {
+  if (!contextEdge) return;
+  graph.removeCell(contextEdge);
+  hideEdgeContextMenu();
+}
+
+// Close context menus on outside click
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.context-menu')) hideContextMenu();
+  if (!e.target.closest('.context-menu')) { hideContextMenu(); hideEdgeContextMenu(); }
 });
 
 // ============================================================
