@@ -219,7 +219,7 @@ function initGraph() {
   console.log('[diagram] graph created');
 
   // Plugins
-  graph.use(new X6PluginSelection.Selection({ enabled: true, multiple: true, rubberband: true, modifiers: 'shift', showNodeSelectionBox: true, showEdgeSelectionBox: true }));
+  graph.use(new X6PluginSelection.Selection({ enabled: true, multiple: true, rubberband: true, modifiers: 'shift', showNodeSelectionBox: true, showEdgeSelectionBox: false }));
   graph.use(new X6PluginHistory.History({ enabled: true }));
   graph.use(new X6PluginSnapline.Snapline({ enabled: true }));
   graph.use(new X6PluginExport.Export());
