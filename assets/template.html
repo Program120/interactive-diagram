@@ -380,6 +380,42 @@ function autoLayout() {
     const pos = g.node(n.id);
     if (pos) n.position(pos.x - pos.width / 2, pos.y - pos.height / 2);
   });
+
+  // Assign ports for ALL edges based on relative node positions.
+  // Uses prop() to update ports without resetting edge connections.
+  edges.forEach(e => {
+    const srcNode = graph.getCellById(e.getSourceCellId());
+    const tgtNode = graph.getCellById(e.getTargetCellId());
+    if (!srcNode || !tgtNode) return;
+    const sp = srcNode.getPosition(), ss = srcNode.getSize();
+    const tp = tgtNode.getPosition(), ts = tgtNode.getSize();
+    const scx = sp.x + ss.width / 2, scy = sp.y + ss.height / 2;
+    const tcx = tp.x + ts.width / 2, tcy = tp.y + ts.height / 2;
+    const dx = tcx - scx, dy = tcy - scy;
+    let srcPort, tgtPort;
+    // Determine best ports based on relative position
+    const absDx = Math.abs(dx), absDy = Math.abs(dy);
+    if (absDy < 20 && absDx > 30) {
+      // Same rank horizontal
+      srcPort = dx > 0 ? 'pr' : 'pl';
+      tgtPort = dx > 0 ? 'pl' : 'pr';
+    } else if (absDx < 20 && absDy > 30) {
+      // Same column vertical
+      srcPort = dy > 0 ? 'pb' : 'pt';
+      tgtPort = dy > 0 ? 'pt' : 'pb';
+    } else if (absDy > absDx) {
+      // Primarily vertical
+      srcPort = dy > 0 ? 'pb' : 'pt';
+      tgtPort = dy > 0 ? 'pt' : 'pb';
+    } else {
+      // Primarily horizontal
+      srcPort = dx > 0 ? 'pr' : 'pl';
+      tgtPort = dx > 0 ? 'pl' : 'pr';
+    }
+    e.prop('source/port', srcPort);
+    e.prop('target/port', tgtPort);
+  });
+
   graph.stopBatch('layout');
   setTimeout(() => fitView(), 100);
   // Save positions to server so refresh preserves layout
