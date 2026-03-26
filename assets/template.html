@@ -235,6 +235,17 @@ function initGraph() {
     ports.forEach(p => { node.setPortProp(p.id, 'attrs/circle/stroke', '#ccc'); node.setPortProp(p.id, 'attrs/circle/r', 4); });
   });
 
+  // Edge hover: show draggable arrowheads to reconnect source/target ports
+  graph.on('edge:mouseenter', ({ edge }) => {
+    edge.addTools([
+      { name: 'source-arrowhead', args: { attrs: { fill: '#4096ff', cursor: 'move' } } },
+      { name: 'target-arrowhead', args: { attrs: { fill: '#4096ff', cursor: 'move' } } },
+    ]);
+  });
+  graph.on('edge:mouseleave', ({ edge }) => {
+    if (!graph.isSelected(edge)) edge.removeTools();
+  });
+
   // Edge click to select + highlight
   graph.on('edge:click', ({ edge }) => { graph.cleanSelection(); graph.select(edge); });
   graph.on('edge:selected', ({ edge }) => {
