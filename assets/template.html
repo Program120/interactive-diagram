@@ -94,17 +94,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   <button onclick="cmDelete()" style="color:#ff4d4f">删除</button>
 </div>
 <div class="context-menu" id="edgeContextMenu">
-  <div style="padding:4px 16px;font-size:11px;color:#999">出口方向</div>
-  <button onclick="cmEdgePort('source','pt')">↑ 上</button>
-  <button onclick="cmEdgePort('source','pb')">↓ 下</button>
-  <button onclick="cmEdgePort('source','pl')">← 左</button>
-  <button onclick="cmEdgePort('source','pr')">→ 右</button>
-  <div class="menu-sep"></div>
-  <div style="padding:4px 16px;font-size:11px;color:#999">入口方向</div>
-  <button onclick="cmEdgePort('target','pt')">↑ 上</button>
-  <button onclick="cmEdgePort('target','pb')">↓ 下</button>
-  <button onclick="cmEdgePort('target','pl')">← 左</button>
-  <button onclick="cmEdgePort('target','pr')">→ 右</button>
+  <button onclick="cmEdgeResetRoute()">重置为自动路由</button>
   <div class="menu-sep"></div>
   <button onclick="cmEdgeDelete()" style="color:#ff4d4f">删除</button>
 </div>
@@ -250,21 +240,32 @@ function initGraph() {
     ports.forEach(p => { node.setPortProp(p.id, 'attrs/circle/stroke', '#ccc'); node.setPortProp(p.id, 'attrs/circle/r', 4); });
   });
 
-  // Edge arrowhead tools for reconnecting source/target ports
-  const _arrowTools = [
-    { name: 'source-arrowhead', args: { attrs: { d: 'M 0 -6 L 12 0 L 0 6 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
-    { name: 'target-arrowhead', args: { attrs: { d: 'M 0 -6 L 12 0 L 0 6 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
+  // Edge tools: vertices (drag waypoints to reshape path) + arrowheads (reconnect)
+  const _edgeTools = [
+    { name: 'vertices', args: { attrs: { r: 5, fill: '#4096ff', stroke: '#fff', strokeWidth: 2, cursor: 'move' } } },
+    { name: 'source-arrowhead', args: { attrs: { d: 'M 0 -5 L 10 0 L 0 5 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
+    { name: 'target-arrowhead', args: { attrs: { d: 'M 0 -5 L 10 0 L 0 5 Z', fill: '#4096ff', stroke: '#fff', strokeWidth: 1, cursor: 'move' } } },
   ];
-  graph.on('edge:mouseenter', ({ edge }) => { if (!edge.hasTools()) edge.addTools(_arrowTools); });
+  graph.on('edge:mouseenter', ({ edge }) => { if (!edge.hasTools()) edge.addTools(_edgeTools); });
   graph.on('edge:mouseleave', ({ edge }) => { if (!graph.isSelected(edge)) edge.removeTools(); });
 
-  // Edge click to select + highlight + keep arrowhead tools
+  // When user adds/moves a vertex, switch edge from auto manhattan to manual routing
+  graph.on('edge:change:vertices', ({ edge }) => {
+    const verts = edge.getVertices();
+    if (verts && verts.length > 0 && !edge._manualRoute) {
+      edge._manualRoute = true;
+      edge.setRouter(null);
+      edge.setConnector('rounded', { radius: 8 });
+    }
+  });
+
+  // Edge click to select + highlight
   graph.on('edge:click', ({ edge }) => { graph.cleanSelection(); graph.select(edge); });
   graph.on('edge:selected', ({ edge }) => {
     edge._origStroke = edge.attr('line/stroke');
     edge._origWidth = edge.attr('line/strokeWidth');
     edge.attr('line/strokeWidth', 3);
-    if (!edge.hasTools()) edge.addTools(_arrowTools);
+    if (!edge.hasTools()) edge.addTools(_edgeTools);
   });
   graph.on('edge:unselected', ({ edge }) => {
     edge.attr('line/strokeWidth', edge._origWidth || 2);
@@ -558,9 +559,12 @@ function hideEdgeContextMenu() {
   document.getElementById('edgeContextMenu').classList.remove('show');
   contextEdge = null;
 }
-function cmEdgePort(end, port) {
+function cmEdgeResetRoute() {
   if (!contextEdge) return;
-  contextEdge.prop(end + '/port', port);
+  contextEdge._manualRoute = false;
+  contextEdge.setVertices([]);
+  contextEdge.setRouter('manhattan', { padding: 30, step: 15 });
+  contextEdge.setConnector('rounded', { radius: 8 });
   hideEdgeContextMenu();
 }
 function cmEdgeDelete() {
