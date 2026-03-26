@@ -428,6 +428,41 @@ function autoLayout() {
     e.prop('target/port', tgtPort);
   });
 
+  // Resolve port conflicts: when multiple edges share the same port on a node,
+  // redistribute them to alternative ports to prevent line overlap.
+  const altPorts = { pb: ['pr', 'pl'], pt: ['pr', 'pl'], pl: ['pt', 'pb'], pr: ['pt', 'pb'] };
+  const usedSrcPorts = {}; // nodeId -> { portId: [edge, ...] }
+  const usedTgtPorts = {};
+  edges.forEach(e => {
+    const sId = e.getSourceCellId(), sPort = e.getSourcePortId();
+    const tId = e.getTargetCellId(), tPort = e.getTargetPortId();
+    if (sId && sPort) { (usedSrcPorts[sId] = usedSrcPorts[sId] || {})[sPort] = (usedSrcPorts[sId][sPort] || []).concat(e); }
+    if (tId && tPort) { (usedTgtPorts[tId] = usedTgtPorts[tId] || {})[tPort] = (usedTgtPorts[tId][tPort] || []).concat(e); }
+  });
+  // Fix source port conflicts
+  Object.values(usedSrcPorts).forEach(ports => {
+    Object.entries(ports).forEach(([port, edgeList]) => {
+      if (edgeList.length <= 1) return;
+      // Keep the first edge on this port, move others to alternatives
+      const usedOnNode = new Set(Object.keys(ports));
+      for (let i = 1; i < edgeList.length; i++) {
+        const alt = (altPorts[port] || []).find(p => !usedOnNode.has(p));
+        if (alt) { edgeList[i].prop('source/port', alt); usedOnNode.add(alt); }
+      }
+    });
+  });
+  // Fix target port conflicts
+  Object.values(usedTgtPorts).forEach(ports => {
+    Object.entries(ports).forEach(([port, edgeList]) => {
+      if (edgeList.length <= 1) return;
+      const usedOnNode = new Set(Object.keys(ports));
+      for (let i = 1; i < edgeList.length; i++) {
+        const alt = (altPorts[port] || []).find(p => !usedOnNode.has(p));
+        if (alt) { edgeList[i].prop('target/port', alt); usedOnNode.add(alt); }
+      }
+    });
+  });
+
   graph.stopBatch('layout');
   setTimeout(() => fitView(), 100);
   // Save positions to server so refresh preserves layout
