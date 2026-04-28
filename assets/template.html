@@ -128,6 +128,33 @@ const DEFAULT_LABELS = {
 };
 
 // ============================================================
+// Auto-fit node size based on label content
+// CJK chars ~14px wide, ASCII ~8px wide. Multi-line labels expand height.
+// ============================================================
+function calcNodeSize(label, type) {
+  const t = NODE_TYPES[type] || NODE_TYPES['process'];
+  const minW = t.width, minH = t.height;
+  const maxW = 260;
+  if (!label) return { width: minW, height: minH };
+
+  const lines = String(label).split('\n');
+  const widthOfLine = (line) => {
+    let w = 0;
+    for (const ch of line) {
+      // CJK / fullwidth punctuation ~14px, ASCII ~8px
+      const isCJK = /[　-〿一-鿿＀-￯]/.test(ch);
+      w += isCJK ? 14 : 8;
+    }
+    return w;
+  };
+  const longest = Math.max(...lines.map(widthOfLine));
+  // padding 32 horizontal, 22px line-height + 16 vertical padding
+  const w = Math.min(maxW, Math.max(minW, longest + 32));
+  const h = Math.max(minH, lines.length * 22 + 18);
+  return { width: w, height: h };
+}
+
+// ============================================================
 // Build node config for X6 addNode
 // ============================================================
 function buildNodeConfig(id, type, label, x, y) {
@@ -136,17 +163,19 @@ function buildNodeConfig(id, type, label, x, y) {
   if (type === 'decision') shape = 'polygon';
   else if (type === 'terminal' || type === 'terminal-end') shape = 'ellipse';
 
+  const sz = calcNodeSize(label, type);
+
   const config = {
     id: id,
     shape: shape,
     x: x || 0,
     y: y || 0,
-    width: t.width,
-    height: t.height,
+    width: sz.width,
+    height: sz.height,
     label: label || '',
     attrs: {
       body: { ...t.body },
-      label: { fontSize: 13, fill: t.labelFill, textWrap: { width: t.width - 20 } },
+      label: { fontSize: 13, fill: t.labelFill, textWrap: { width: sz.width - 20, height: sz.height - 12, ellipsis: false } },
     },
     ports: {
       groups: {
@@ -872,6 +901,55 @@ function exportToServer(format, requestId, options = {}) {
   }
 }
 
+const DRAWIO_COLOR_ALIASES = {
+  blue: '#4096ff',
+  green: '#52c41a',
+  red: '#ff4d4f',
+  purple: '#722ed1',
+  cyan: '#13c2c2',
+  orange: '#faad14',
+  gray: '#8c8c8c',
+  grey: '#8c8c8c',
+};
+
+function escXmlAttr(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function normalizeDrawioColor(value, fallback = '#8c8c8c') {
+  const color = String(value || '').trim();
+  if (!color) return fallback;
+
+  const lower = color.toLowerCase();
+  if (DRAWIO_COLOR_ALIASES[lower]) return DRAWIO_COLOR_ALIASES[lower];
+
+  if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+  if (/^#[0-9a-f]{3}$/i.test(color)) {
+    const [, r, g, b] = color;
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+
+  const rgb = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i);
+  if (rgb) {
+    const parts = rgb.slice(1, 4).map((part) => Math.max(0, Math.min(255, Number(part))));
+    return '#' + parts.map((part) => part.toString(16).padStart(2, '0')).join('');
+  }
+
+  return fallback;
+}
+
+function getDrawioEdgeStyle(edge) {
+  const strokeColor = normalizeDrawioColor(edge.attr('line/stroke'));
+  const strokeWidth = Number(edge.attr('line/strokeWidth'));
+  const widthStyle = Number.isFinite(strokeWidth) && strokeWidth > 0 ? `strokeWidth=${strokeWidth};` : '';
+  return `edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=${strokeColor};${widthStyle}endArrow=classic;endFill=1;`;
+}
+
 function generateDrawioXml() {
   const nodes = graph.getNodes();
   if (nodes.length === 0) return null;
@@ -895,8 +973,8 @@ function generateDrawioXml() {
     const style = drawioStyles[type] || 'rounded=1;whiteSpace=wrap;html=1;';
     const pos = n.getPosition();
     const size = n.getSize();
-    const label = escHtml(n.attr('label/text') || n.attr('text/text') || '');
-    cells += `        <mxCell id="${mid}" value="${label}" style="${style}" vertex="1" parent="1"><mxGeometry x="${Math.round(pos.x)}" y="${Math.round(pos.y)}" width="${size.width}" height="${size.height}" as="geometry"/></mxCell>\n`;
+    const label = escXmlAttr(n.attr('label/text') || n.attr('text/text') || '');
+    cells += `        <mxCell id="${mid}" value="${label}" style="${escXmlAttr(style)}" vertex="1" parent="1"><mxGeometry x="${Math.round(pos.x)}" y="${Math.round(pos.y)}" width="${size.width}" height="${size.height}" as="geometry"/></mxCell>\n`;
   });
   graph.getEdges().forEach(e => {
     const mid = cellId++;
@@ -905,8 +983,9 @@ function generateDrawioXml() {
     if (!src || !tgt) return;
     const labels = e.getLabels();
     const lt = labels.length > 0 ? (labels[0].attrs?.label?.text || labels[0].attrs?.text?.text || '') : '';
-    const la = lt ? ` value="${escHtml(lt)}"` : '';
-    cells += `        <mxCell id="${mid}"${la} style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" source="${src}" target="${tgt}" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>\n`;
+    const la = lt ? ` value="${escXmlAttr(lt)}"` : '';
+    const style = getDrawioEdgeStyle(e);
+    cells += `        <mxCell id="${mid}"${la} style="${escXmlAttr(style)}" edge="1" source="${src}" target="${tgt}" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>\n`;
   });
   return `<?xml version="1.0" encoding="UTF-8"?>\n<mxfile><diagram name="Diagram"><mxGraphModel><root>\n        <mxCell id="0"/>\n        <mxCell id="1" parent="0"/>\n${cells}</root></mxGraphModel></diagram></mxfile>`;
 }
