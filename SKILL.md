@@ -30,6 +30,7 @@ Agent sends curl commands (~30-50 tokens each)
 ### Key Features
 - **Real-time incremental rendering**: Nodes/edges appear one by one as agent generates them
 - **Page refresh recovery**: Server stores all commands; refreshing the page replays full state
+- **Persistent browser edits**: Manual edits in the browser are saved as a full graph snapshot
 - **Dagre auto-layout**: Uses the real dagre.js library (CDN) for proper hierarchical layout
 - **AntV X6 rendering engine**: Professional diagram editor powered by X6 v2
 - **Interactive editing**: Users can edit diagrams directly in the browser after generation:
@@ -113,7 +114,25 @@ curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"layout"}'
 | `error` | Red-bordered rect | Error/failure state |
 | `container` | Dashed background frame with header | Group related nodes |
 
-Service nodes support an `icon` field: `{"cmd":"node","id":"s1","label":"API Gateway","type":"service","icon":"🔀"}`
+Nodes support an `icon` field: `{"cmd":"node","id":"s1","label":"API Gateway","type":"service","icon":"🔀"}`
+
+## Node Options
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Node ID |
+| `label` | No | Node text |
+| `type` | No | One of the node types above; default `process` |
+| `icon` | No | Prefix icon shown before the label, useful for architecture diagrams |
+| `color` | No | Primary accent color: border for outlined nodes, fill for filled nodes |
+| `fill` | No | Body fill color |
+| `stroke` | No | Border color; overrides `color` for outlined nodes |
+| `textColor` / `labelColor` | No | Label color |
+| `strokeWidth` | No | Border width |
+| `dashed` / `strokeDasharray` | No | Dashed border |
+| `width` / `height` | No | Manual node size |
+
+Named colors: `blue`, `green`, `red`, `purple`, `cyan`, `orange`, `yellow`, `black`, `white`, `gray`/`grey`; hex and `rgb(...)` values are also supported.
 
 ## Containers
 
@@ -144,7 +163,10 @@ You can also create a container with `{"cmd":"node","type":"container",...}` for
 | `from` | Yes | Source node ID |
 | `to` | Yes | Target node ID |
 | `label` | No | Text label on the edge |
-| `color` | No | `blue`, `green`, `red`, `purple`, `cyan`, `orange`, or hex color |
+| `color` | No | Named, hex, or `rgb(...)` color |
+| `strokeWidth` / `width` | No | Edge width |
+| `vertices` | No | Manual bend points: `[{"x":100,"y":120}]` |
+| `sourcePort` / `targetPort` | No | Explicit port IDs (`pt`, `pb`, `pl`, `pr`) |
 
 ## All Commands
 
@@ -159,6 +181,7 @@ You can also create a container with `{"cmd":"node","type":"container",...}` for
 | `remove` | Remove a node | `{"cmd":"remove","id":"n1"}` |
 | `batch` | Add multiple at once | `{"cmd":"batch","nodes":[...],"edges":[...]}` |
 | `container` | Add/update a container frame | `{"cmd":"container","id":"g1","label":"Group","children":["n1","n2"]}` |
+| `graph` | Restore a full saved X6 graph snapshot | Internal persistence command |
 | `export` | Trigger browser download | `{"cmd":"export","format":"png"}` (png/svg/json/drawio) |
 
 ### Server-Side Export (Save to Disk)
@@ -256,6 +279,7 @@ All endpoints support `?s=SESSION_ID` query parameter (default: `default`).
 | `/sessions` | GET | List all sessions with command counts |
 | `/cmd` | POST | Send a diagram command |
 | `/export` | POST | Export diagram to file (server-side save) |
+| `/save-graph` | POST | Persist full browser-edited graph snapshot |
 | `/clear` | POST | Clear session state |
 
 ## Fallback

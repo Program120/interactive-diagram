@@ -29,6 +29,7 @@
 - **Interactive Editing** — Drag nodes, double-click to edit labels, right-click context menu, connect ports
 - **Multi-Session** — Multiple diagrams in parallel via `?s=session_name` URL parameter
 - **Page Refresh Recovery** — Server stores all commands; refreshing replays full state
+- **Persistent Browser Edits** — Manual label, edge, route, delete, duplicate, and add operations survive refresh
 - **Server-Side Export** — Export PNG, SVG, JSON, Draw.io files to disk via curl commands
 - **Browser Export** — PNG, SVG, JSON, Draw.io XML download or copy to clipboard from toolbar
 - **Smooth Zoom** — Mouse wheel / trackpad zoom centered on cursor
@@ -57,6 +58,14 @@
 | `success` | Green-bordered rect | Success state |
 | `error` | Red-bordered rect | Error/failure state |
 | `container` | Dashed background frame with header | Group related nodes |
+
+### Node Styling
+
+Nodes accept optional style fields: `icon`, `color`, `fill`, `stroke`, `textColor`, `strokeWidth`, `dashed`, `strokeDasharray`, `width`, and `height`.
+
+```bash
+curl -s 127.0.0.1:6100/cmd -d '{"cmd":"node","id":"gateway","label":"API Gateway","type":"service","icon":"🔀","color":"purple","fill":"#f9f0ff"}'
+```
 
 ### Containers
 
@@ -131,6 +140,7 @@ All endpoints support `?s=SESSION_ID` query parameter (default: `default`).
 | `/sessions` | GET | List all sessions with command counts |
 | `/cmd` | POST | Send a diagram command |
 | `/export` | POST | Export diagram to file (server-side save) |
+| `/save-graph` | POST | Persist a full browser-edited graph snapshot |
 | `/clear` | POST | Clear session state |
 
 ## Server-Side Export

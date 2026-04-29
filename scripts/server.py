@@ -127,6 +127,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_export_result()
         elif path == "/save-positions":
             self._handle_save_positions(sid)
+        elif path == "/save-graph":
+            self._handle_save_graph(sid)
         else:
             self.send_error(404)
 
@@ -270,6 +272,37 @@ class Handler(BaseHTTPRequestHandler):
                     pos = positions[cmd["id"]]
                     cmd["_x"] = pos["x"]
                     cmd["_y"] = pos["y"]
+        _save_session(sid)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._cors()
+        self.end_headers()
+        self.wfile.write(b'{"ok":true}')
+
+    def _handle_save_graph(self, sid: str):
+        """Persist the browser's full graph after interactive edits."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode()
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            self.send_error(400, "Invalid JSON")
+            return
+
+        graph_data = payload.get("graph")
+        if not isinstance(graph_data, dict):
+            self.send_error(400, "Missing graph object")
+            return
+
+        snapshot = {
+            "cmd": "graph",
+            "title": payload.get("title") or "",
+            "direction": payload.get("direction") or "TB",
+            "data": graph_data,
+        }
+        with lock:
+            sess = _get_session(sid)
+            sess["state"] = [snapshot]
         _save_session(sid)
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

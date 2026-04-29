@@ -106,10 +106,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // ============================================================
 // State & Config
 // ============================================================
-const state = { direction: 'TB', _isRestoring: false };
+const state = { direction: 'TB', hasGraphSnapshot: false, _isRestoring: false, _isApplyingCommand: false };
 let graph = null;
 let contextTarget = null;
 let clipboard = [];
+let graphSaveTimer = null;
 const PNG_EXPORT_DEFAULT_RATIO = Math.max(window.devicePixelRatio || 1, 2);
 const CONTAINER_DEFAULT_PADDING = 34;
 const CONTAINER_HEADER_HEIGHT = 30;
@@ -143,6 +144,77 @@ function parseChildren(value) {
 
 function isContainerNode(node) {
   return node?.getData?.()?.diagramType === 'container';
+}
+
+function getNodeIcon(value) {
+  return String(value || '').trim();
+}
+
+function getDisplayLabel(label, icon) {
+  const rawLabel = String(label ?? '');
+  const cleanIcon = getNodeIcon(icon);
+  return cleanIcon ? `${cleanIcon} ${rawLabel}`.trim() : rawLabel;
+}
+
+function getNodeRawLabel(node) {
+  const data = node.getData?.() || {};
+  if (data.rawLabel != null) return String(data.rawLabel);
+  const text = String(node.attr('label/text') || node.attr('text/text') || '');
+  const icon = getNodeIcon(data.icon);
+  return icon && text.startsWith(icon + ' ') ? text.slice(icon.length + 1) : text;
+}
+
+function setNodeLabel(node, rawLabel, icon = node.getData?.()?.icon) {
+  const cleanIcon = getNodeIcon(icon);
+  const nextLabel = String(rawLabel ?? '');
+  node.attr('label/text', getDisplayLabel(nextLabel, cleanIcon));
+  node.setData({ ...(node.getData() || {}), rawLabel: nextLabel, icon: cleanIcon });
+}
+
+function hasNodeStyleOptions(options = {}) {
+  return ['color', 'fill', 'stroke', 'textColor', 'labelColor', 'strokeWidth', 'strokeDasharray', 'dashed'].some((key) => options[key] != null);
+}
+
+function getNodeAppearance(type, options = {}) {
+  const t = NODE_TYPES[type] || NODE_TYPES['process'];
+  const body = { ...t.body };
+  const primaryColor = options.color;
+  const fillSource = options.fill || (body.strokeWidth === 0 ? primaryColor : null) || body.fill;
+  const strokeSource = options.stroke || (body.strokeWidth === 0 ? null : primaryColor) || body.stroke;
+  body.fill = normalizeDrawioColor(fillSource, body.fill);
+  body.stroke = normalizeDrawioColor(strokeSource, body.stroke);
+
+  if (options.strokeWidth != null) {
+    body.strokeWidth = Math.max(0, readNumber(options.strokeWidth, body.strokeWidth || 0));
+  }
+  if (options.strokeDasharray != null) body.strokeDasharray = String(options.strokeDasharray);
+  else if (options.dashed === true) body.strokeDasharray = '8 4';
+
+  return {
+    body,
+    labelFill: normalizeDrawioColor(options.textColor || options.labelColor, t.labelFill),
+  };
+}
+
+function applyNodeAppearance(node, type, options = {}) {
+  if (!hasNodeStyleOptions(options)) return;
+  const appearance = getNodeAppearance(type, options);
+  node.attr('body', { ...(node.attr('body') || {}), ...appearance.body });
+  node.attr('label/fill', appearance.labelFill);
+  if (type === 'database') {
+    node.attr('topBar/fill', appearance.body.stroke);
+    node.attr('topBar/stroke', appearance.body.stroke);
+  }
+}
+
+function getNodeStyleOptionsFromNode(node) {
+  return {
+    fill: node.attr('body/fill'),
+    stroke: node.attr('body/stroke'),
+    textColor: node.attr('label/fill'),
+    strokeWidth: node.attr('body/strokeWidth'),
+    strokeDasharray: node.attr('body/strokeDasharray'),
+  };
 }
 
 // ============================================================
@@ -180,11 +252,18 @@ function buildNodeConfig(id, type, label, x, y, options = {}) {
   if (resolvedType === 'container') return buildContainerConfig(id, label, x, y, options);
 
   const t = NODE_TYPES[resolvedType];
+  const icon = getNodeIcon(options.icon);
+  const displayLabel = getDisplayLabel(label, icon);
+  const appearance = getNodeAppearance(resolvedType, options);
   let shape = 'rect';
   if (resolvedType === 'decision') shape = 'polygon';
   else if (resolvedType === 'terminal' || resolvedType === 'terminal-end') shape = 'ellipse';
 
-  const sz = calcNodeSize(label, resolvedType);
+  const baseSize = calcNodeSize(label, resolvedType);
+  const sz = {
+    width: Math.max(40, readNumber(options.width, baseSize.width)),
+    height: Math.max(30, readNumber(options.height, baseSize.height)),
+  };
 
   const config = {
     id: id,
@@ -193,10 +272,10 @@ function buildNodeConfig(id, type, label, x, y, options = {}) {
     y: y || 0,
     width: sz.width,
     height: sz.height,
-    label: label || '',
+    label: displayLabel,
     attrs: {
-      body: { ...t.body },
-      label: { fontSize: 13, fill: t.labelFill, textWrap: { width: sz.width - 20, height: sz.height - 12, ellipsis: false } },
+      body: { ...appearance.body },
+      label: { text: displayLabel, fontSize: 13, fill: appearance.labelFill, textWrap: { width: sz.width - 20, height: sz.height - 12, ellipsis: false } },
     },
     ports: {
       groups: {
@@ -212,7 +291,7 @@ function buildNodeConfig(id, type, label, x, y, options = {}) {
         { group: 'right', id: 'pr' },
       ],
     },
-    data: { diagramType: resolvedType },
+    data: { diagramType: resolvedType, rawLabel: String(label || ''), icon: icon },
   };
   if (resolvedType === 'decision') {
     config.attrs.body.refPoints = '0.5,0 1,0.5 0.5,1 0,0.5';
@@ -226,7 +305,7 @@ function buildNodeConfig(id, type, label, x, y, options = {}) {
       { tagName: 'text', selector: 'label' },
     ];
     config.attrs.topBar = {
-      refWidth: '100%', height: 8, fill: '#13c2c2', stroke: '#13c2c2', rx: 4, ry: 4,
+      refWidth: '100%', height: 8, fill: appearance.body.stroke, stroke: appearance.body.stroke, rx: 4, ry: 4,
     };
     config.attrs.body.rx = 4;
     config.attrs.body.ry = 4;
@@ -358,8 +437,12 @@ function initGraph() {
       // Refresh tools to switch from vertices to segments
       edge.removeTools();
       edge.addTools(_getEdgeTools(edge));
+      scheduleGraphSave('edge-route');
     }
   });
+  graph.on('edge:connected', () => scheduleGraphSave('edge-connected'));
+  graph.on('edge:change:source', () => scheduleGraphSave('edge-source'));
+  graph.on('edge:change:target', () => scheduleGraphSave('edge-target'));
 
   // Edge click to select + highlight
   graph.on('edge:click', ({ edge }) => { graph.cleanSelection(); graph.select(edge); });
@@ -376,8 +459,11 @@ function initGraph() {
 
   // Double-click edit node
   graph.on('node:dblclick', ({ node }) => {
-    const text = node.attr('label/text') || '';
-    showInlineEditor('编辑节点标签', text, (newText) => { node.attr('label/text', newText); });
+    const text = getNodeRawLabel(node);
+    showInlineEditor('编辑节点标签', text, (newText) => {
+      setNodeLabel(node, newText);
+      scheduleGraphSave('node-label');
+    });
   });
 
   // Double-click edit edge
@@ -387,6 +473,7 @@ function initGraph() {
     showInlineEditor('编辑连线标签', text, (newText) => {
       if (labels.length > 0) edge.setLabelAt(0, { attrs: { label: { text: newText } } });
       else edge.appendLabel({ attrs: { label: { text: newText } } });
+      scheduleGraphSave('edge-label');
     });
   });
 
@@ -422,7 +509,7 @@ function initGraph() {
   let _dragSaveTimer = null;
   graph.on('node:moved', () => {
     clearTimeout(_dragSaveTimer);
-    _dragSaveTimer = setTimeout(() => saveNodePositions(), 500);
+    _dragSaveTimer = setTimeout(() => scheduleGraphSave('node-moved'), 500);
   });
 
   // Undo/redo button state
@@ -441,7 +528,10 @@ function initGraph() {
 
 function deleteSelected() {
   const cells = graph.getSelectedCells();
-  if (cells.length > 0) graph.removeCells(cells);
+  if (cells.length > 0) {
+    graph.removeCells(cells);
+    scheduleGraphSave('selection-delete');
+  }
 }
 
 // ============================================================
@@ -465,11 +555,13 @@ function fitView() { if (graph.getNodes().length > 0) graph.zoomToFit({ padding:
 // ============================================================
 // Auto layout with dagre
 // ============================================================
-function autoLayout() {
+function autoLayout(options = {}) {
+  const persist = options.persist || (state._isRestoring ? 'none' : (state._isApplyingCommand ? 'positions' : 'snapshot'));
   const nodes = graph.getNodes().filter(n => !isContainerNode(n));
   const edges = graph.getEdges();
   if (nodes.length === 0) {
     syncContainers();
+    if (persist === 'snapshot') scheduleGraphSave('layout');
     return;
   }
   console.log('[diagram] autoLayout:', nodes.length, 'nodes,', edges.length, 'edges');
@@ -527,8 +619,8 @@ function autoLayout() {
 
   graph.stopBatch('layout');
   setTimeout(() => fitView(), 100);
-  // Save positions to server so refresh preserves layout
-  saveNodePositions();
+  if (persist === 'positions') saveNodePositions();
+  else if (persist === 'snapshot') scheduleGraphSave('layout');
 }
 
 function assignEdgePorts() {
@@ -621,6 +713,20 @@ function syncContainers() {
   });
 }
 
+function restoreGraphRuntimeState() {
+  graph.getNodes().forEach(node => {
+    if (isContainerNode(node)) node.toBack();
+  });
+  graph.getEdges().forEach(edge => {
+    const vertices = edge.getVertices();
+    const router = edge.getRouter();
+    const routerName = typeof router === 'string' ? router : router?.name;
+    if ((vertices && vertices.length > 0) || routerName === 'orth') {
+      edge._manualRoute = true;
+    }
+  });
+}
+
 function saveNodePositions() {
   if (!_sseSession) return;
   const positions = {};
@@ -633,6 +739,28 @@ function saveNodePositions() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(positions),
   }).catch(() => {});
+}
+
+function scheduleGraphSave(reason = 'edit') {
+  if (!_sseSession || state._isRestoring || state._isApplyingCommand) return;
+  clearTimeout(graphSaveTimer);
+  graphSaveTimer = setTimeout(() => saveGraphSnapshot(reason), 500);
+}
+
+function saveGraphSnapshot(reason = 'edit') {
+  if (!_sseSession || !graph) return;
+  state.hasGraphSnapshot = true;
+  const payload = {
+    title: document.getElementById('diagramTitle')?.textContent || '',
+    direction: state.direction || 'TB',
+    reason,
+    graph: graph.toJSON(),
+  };
+  fetch('/save-graph?s=' + _sseSession, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(err => console.error('[diagram] save-graph failed:', err));
 }
 
 // ============================================================
@@ -648,6 +776,7 @@ function setupNodePanel() {
       const cy = (area.y || 200) + Math.random() * 100;
       const node = graph.addNode(buildNodeConfig('n_' + Date.now(), type, label, cx, cy));
       if (type === 'container') node.toBack();
+      scheduleGraphSave('panel-add');
       console.log('[diagram] added node from panel:', type);
     });
   });
@@ -669,25 +798,36 @@ function hideContextMenu() {
 function cmEdit() {
   if (!contextTarget) return;
   const node = contextTarget;
-  const text = node.attr('label/text') || '';
+  const text = getNodeRawLabel(node);
   hideContextMenu();
-  showInlineEditor('编辑节点标签', text, (newText) => { node.attr('label/text', newText); });
+  showInlineEditor('编辑节点标签', text, (newText) => {
+    setNodeLabel(node, newText);
+    scheduleGraphSave('node-label');
+  });
 }
 function cmDuplicate() {
   if (!contextTarget) return;
   const pos = contextTarget.getPosition();
   const size = contextTarget.getSize();
-  const type = contextTarget.getData()?.diagramType || 'process';
-  const label = (contextTarget.attr('label/text') || '') + ' (副本)';
-  const config = buildNodeConfig('n_' + Date.now(), type, label, pos.x + 30, pos.y + 30, { width: size.width, height: size.height });
+  const data = contextTarget.getData() || {};
+  const type = data.diagramType || 'process';
+  const label = getNodeRawLabel(contextTarget) + ' (副本)';
+  const config = buildNodeConfig('n_' + Date.now(), type, label, pos.x + 30, pos.y + 30, {
+    ...getNodeStyleOptionsFromNode(contextTarget),
+    width: size.width,
+    height: size.height,
+    icon: data.icon,
+  });
   const node = graph.addNode(config);
   if (type === 'container') node.toBack();
   hideContextMenu();
+  scheduleGraphSave('node-duplicate');
 }
 function cmDelete() {
   if (!contextTarget) return;
   graph.removeCell(contextTarget);
   hideContextMenu();
+  scheduleGraphSave('node-delete');
 }
 
 // Edge context menu
@@ -709,11 +849,13 @@ function cmEdgeResetRoute() {
   contextEdge.setConnector('rounded', { radius: 8 });
   contextEdge.removeTools();
   hideEdgeContextMenu();
+  scheduleGraphSave('edge-route-reset');
 }
 function cmEdgeDelete() {
   if (!contextEdge) return;
   graph.removeCell(contextEdge);
   hideEdgeContextMenu();
+  scheduleGraphSave('edge-delete');
 }
 
 // Close context menus on outside click
@@ -755,11 +897,13 @@ function connectSSE() {
         state._isRestoring = true;
         // Check if any node has saved positions (user has dragged before)
         const hasPositions = cmds.some(c => (c.cmd === 'node' || c.cmd === 'container') && c._x != null);
+        const hasGraphSnapshot = cmds.some(c => c.cmd === 'graph');
         cmds.forEach(cmd => handleCommand(cmd));
         state._isRestoring = false;
         _stateRestored = true;
         // Only auto-layout if no saved positions exist
-        if (graph.getNodes().length > 0 && !hasPositions) autoLayout();
+        if (hasGraphSnapshot) { restoreGraphRuntimeState(); fitView(); }
+        else if (graph.getNodes().length > 0 && !hasPositions) autoLayout({ persist: 'positions' });
         else if (graph.getNodes().length > 0) { syncContainers(); assignEdgePorts(); fitView(); }
       })
       .catch(err => console.error('[diagram] restore error:', err));
@@ -852,18 +996,40 @@ document.addEventListener('visibilitychange', () => {
 // ============================================================
 let layoutTimer = null;
 function handleCommand(cmd) {
+  const wasApplyingCommand = state._isApplyingCommand;
+  state._isApplyingCommand = true;
   try {
     switch (cmd.cmd) {
       case 'init':
+        clearTimeout(graphSaveTimer);
+        graph.clearCells();
+        state.hasGraphSnapshot = false;
+        if (cmd.title) document.getElementById('diagramTitle').textContent = cmd.title;
+        if (cmd.direction) state.direction = cmd.direction;
+        break;
+      case 'graph':
         graph.clearCells();
         if (cmd.title) document.getElementById('diagramTitle').textContent = cmd.title;
         if (cmd.direction) state.direction = cmd.direction;
+        if (cmd.data) {
+          state.hasGraphSnapshot = true;
+          graph.fromJSON(cmd.data);
+          restoreGraphRuntimeState();
+        }
         break;
       case 'node': {
         const type = cmd.type || 'process';
         const existing = graph.getCellById(cmd.id);
         if (existing) {
-          if (cmd.label) existing.attr('label/text', cmd.label);
+          if (cmd.label != null || cmd.icon != null) setNodeLabel(existing, cmd.label != null ? cmd.label : getNodeRawLabel(existing), cmd.icon != null ? cmd.icon : existing.getData()?.icon);
+          applyNodeAppearance(existing, type, cmd);
+          if (cmd.width != null || cmd.height != null) {
+            const size = existing.getSize();
+            existing.resize(
+              Math.max(40, readNumber(cmd.width, size.width)),
+              Math.max(30, readNumber(cmd.height, size.height)),
+            );
+          }
           if (cmd._x != null) existing.position(cmd._x, cmd._y);
           if (type === 'container') {
             const data = existing.getData() || {};
@@ -879,6 +1045,11 @@ function handleCommand(cmd) {
                 Math.max(160, readNumber(cmd.width, size.width)),
                 Math.max(120, readNumber(cmd.height, size.height)),
               );
+            }
+            if (cmd.headerFill != null) {
+              const headerFill = normalizeDrawioColor(cmd.headerFill, existing.attr('header/fill') || '#eef4ff');
+              existing.attr('header/fill', headerFill);
+              existing.setData({ ...(existing.getData() || {}), headerFill });
             }
           }
         } else {
@@ -897,11 +1068,14 @@ function handleCommand(cmd) {
         break;
       }
       case 'edge': {
+        const stroke = normalizeDrawioColor(cmd.color || cmd.stroke, '#8c8c8c');
+        const strokeWidth = Math.max(1, readNumber(cmd.width || cmd.strokeWidth, 2));
         const edgeConfig = {
-          source: cmd.from,
-          target: cmd.to,
-          attrs: { line: { stroke: cmd.color || '#8c8c8c', strokeWidth: 2, targetMarker: { name: 'classic', size: 8 } } },
+          source: cmd.sourcePort ? { cell: cmd.from, port: cmd.sourcePort } : cmd.from,
+          target: cmd.targetPort ? { cell: cmd.to, port: cmd.targetPort } : cmd.to,
+          attrs: { line: { stroke: stroke, strokeWidth: strokeWidth, targetMarker: { name: 'classic', size: 8 } } },
         };
+        if (Array.isArray(cmd.vertices)) edgeConfig.vertices = cmd.vertices;
         if (cmd.label) {
           edgeConfig.labels = [{ attrs: { label: { text: cmd.label, fill: '#666', fontSize: 11 }, rect: { fill: '#f0f2f5', stroke: 'none' } } }];
         }
@@ -914,10 +1088,12 @@ function handleCommand(cmd) {
         break;
       }
       case 'layout':
-        autoLayout();
+        autoLayout({ persist: 'positions' });
         break;
       case 'clear':
+        clearTimeout(graphSaveTimer);
         graph.clearCells();
+        state.hasGraphSnapshot = false;
         break;
       case 'title':
         if (cmd.text) document.getElementById('diagramTitle').textContent = cmd.text;
@@ -940,12 +1116,14 @@ function handleCommand(cmd) {
     }
   } catch (err) {
     console.error('[diagram] handleCommand error:', cmd, err);
+  } finally {
+    state._isApplyingCommand = wasApplyingCommand;
   }
 }
 
 function debounceLayout() {
   clearTimeout(layoutTimer);
-  layoutTimer = setTimeout(() => autoLayout(), 300);
+  layoutTimer = setTimeout(() => autoLayout({ persist: state.hasGraphSnapshot ? 'snapshot' : 'positions' }), 300);
 }
 
 // ============================================================
@@ -1025,6 +1203,9 @@ const DRAWIO_COLOR_ALIASES = {
   purple: '#722ed1',
   cyan: '#13c2c2',
   orange: '#faad14',
+  yellow: '#faad14',
+  black: '#000000',
+  white: '#ffffff',
   gray: '#8c8c8c',
   grey: '#8c8c8c',
 };
@@ -1067,7 +1248,7 @@ function getDrawioEdgeStyle(edge) {
   return `edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=${strokeColor};${widthStyle}endArrow=classic;endFill=1;`;
 }
 
-function getDrawioNodeStyle(node, fallbackStyles) {
+function getDrawioNodeStyle(node) {
   const type = node.getData()?.diagramType || 'process';
   if (type === 'container') {
     const fillColor = normalizeDrawioColor(node.attr('body/fill'), '#f6f8fb');
@@ -1075,29 +1256,37 @@ function getDrawioNodeStyle(node, fallbackStyles) {
     const headerFill = normalizeDrawioColor(node.attr('header/fill') || node.getData()?.headerFill, '#eef4ff');
     return `swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=${fillColor};swimlaneFillColor=${headerFill};strokeColor=${strokeColor};dashed=1;startSize=${CONTAINER_HEADER_HEIGHT};`;
   }
-  return fallbackStyles[type] || 'rounded=1;whiteSpace=wrap;html=1;';
+
+  const shapeStyles = {
+    'terminal': 'ellipse;whiteSpace=wrap;html=1;',
+    'terminal-end': 'ellipse;whiteSpace=wrap;html=1;',
+    'process': 'rounded=1;whiteSpace=wrap;html=1;',
+    'decision': 'rhombus;whiteSpace=wrap;html=1;',
+    'service': 'rounded=1;whiteSpace=wrap;html=1;',
+    'database': 'shape=cylinder3;whiteSpace=wrap;html=1;',
+    'success': 'rounded=1;whiteSpace=wrap;html=1;',
+    'error': 'rounded=1;whiteSpace=wrap;html=1;',
+  };
+  const defaults = NODE_TYPES[type] || NODE_TYPES['process'];
+  const fillColor = normalizeDrawioColor(node.attr('body/fill'), defaults.body.fill);
+  const strokeColor = normalizeDrawioColor(node.attr('body/stroke'), defaults.body.stroke);
+  const fontColor = normalizeDrawioColor(node.attr('label/fill'), defaults.labelFill);
+  const strokeWidth = Number(node.attr('body/strokeWidth'));
+  const widthStyle = Number.isFinite(strokeWidth) ? `strokeWidth=${strokeWidth};` : '';
+  const dashStyle = node.attr('body/strokeDasharray') ? 'dashed=1;' : '';
+  return `${shapeStyles[type] || shapeStyles.process}fillColor=${fillColor};strokeColor=${strokeColor};fontColor=${fontColor};${widthStyle}${dashStyle}`;
 }
 
 function generateDrawioXml() {
   const nodes = graph.getNodes().sort((a, b) => Number(isContainerNode(b)) - Number(isContainerNode(a)));
   if (nodes.length === 0) return null;
-  const drawioStyles = {
-    'terminal': 'ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
-    'terminal-end': 'ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;',
-    'process': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;',
-    'decision': 'rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;',
-    'service': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;',
-    'database': 'shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
-    'success': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
-    'error': 'rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;',
-  };
   let cellId = 2;
   const idMap = {};
   let cells = '';
   nodes.forEach(n => {
     const mid = cellId++;
     idMap[n.id] = mid;
-    const style = getDrawioNodeStyle(n, drawioStyles);
+    const style = getDrawioNodeStyle(n);
     const pos = n.getPosition();
     const size = n.getSize();
     const label = escXmlAttr(n.attr('label/text') || n.attr('text/text') || '');
@@ -1112,7 +1301,11 @@ function generateDrawioXml() {
     const lt = labels.length > 0 ? (labels[0].attrs?.label?.text || labels[0].attrs?.text?.text || '') : '';
     const la = lt ? ` value="${escXmlAttr(lt)}"` : '';
     const style = getDrawioEdgeStyle(e);
-    cells += `        <mxCell id="${mid}"${la} style="${escXmlAttr(style)}" edge="1" source="${src}" target="${tgt}" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>\n`;
+    const vertices = e.getVertices();
+    const points = vertices && vertices.length > 0
+      ? `<Array as="points">${vertices.map(p => `<mxPoint x="${Math.round(p.x)}" y="${Math.round(p.y)}"/>`).join('')}</Array>`
+      : '';
+    cells += `        <mxCell id="${mid}"${la} style="${escXmlAttr(style)}" edge="1" source="${src}" target="${tgt}" parent="1"><mxGeometry relative="1" as="geometry">${points}</mxGeometry></mxCell>\n`;
   });
   return `<?xml version="1.0" encoding="UTF-8"?>\n<mxfile><diagram name="Diagram"><mxGraphModel><root>\n        <mxCell id="0"/>\n        <mxCell id="1" parent="0"/>\n${cells}</root></mxGraphModel></diagram></mxfile>`;
 }
