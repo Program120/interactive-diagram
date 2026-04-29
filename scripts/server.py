@@ -266,7 +266,7 @@ class Handler(BaseHTTPRequestHandler):
         with lock:
             sess = _get_session(sid)
             for cmd in sess["state"]:
-                if cmd.get("cmd") == "node" and cmd.get("id") in positions:
+                if cmd.get("cmd") in ("node", "container") and cmd.get("id") in positions:
                     pos = positions[cmd["id"]]
                     cmd["_x"] = pos["x"]
                     cmd["_y"] = pos["y"]

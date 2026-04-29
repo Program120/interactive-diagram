@@ -56,6 +56,17 @@
 | `database` | Cyan-bordered rect with thick top bar | Database/storage |
 | `success` | Green-bordered rect | Success state |
 | `error` | Red-bordered rect | Error/failure state |
+| `container` | Dashed background frame with header | Group related nodes |
+
+### Containers
+
+Containers visually group existing nodes. Create child nodes first, then send a container command with their IDs:
+
+```bash
+curl -s 127.0.0.1:6100/cmd -d '{"cmd":"container","id":"frontend","label":"前端","children":["input","check"],"color":"blue"}'
+```
+
+Containers auto-size around `children`. Without `children`, pass `width` and `height` for a manual frame. They are included in PNG/SVG/JSON/Draw.io exports.
 
 ## Installation
 

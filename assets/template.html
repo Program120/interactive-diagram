@@ -86,6 +86,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   <div class="panel-item" data-type="database" title="数据库"><svg class="shape-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="9" ry="4" fill="none" stroke="#13c2c2" stroke-width="2"/><path d="M3 6v12c0 2.2 4 4 9 4s9-1.8 9-4V6" fill="none" stroke="#13c2c2" stroke-width="2"/></svg></div>
   <div class="panel-item" data-type="success" title="成功"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="#52c41a" stroke-width="2"/><polyline points="7,12 10,15 17,9" fill="none" stroke="#52c41a" stroke-width="2"/></svg></div>
   <div class="panel-item" data-type="error" title="失败"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="#ff4d4f" stroke-width="2"/><line x1="9" y1="9" x2="15" y2="15" stroke="#ff4d4f" stroke-width="2"/><line x1="15" y1="9" x2="9" y2="15" stroke="#ff4d4f" stroke-width="2"/></svg></div>
+  <div class="panel-item" data-type="container" title="容器"><svg class="shape-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="#f6f8fb" stroke="#8c8c8c" stroke-width="2" stroke-dasharray="3 2"/><path d="M3 9h18" stroke="#8c8c8c" stroke-width="2"/></svg></div>
 </div>
 <div class="context-menu" id="contextMenu">
   <button onclick="cmEdit()">编辑标签</button>
@@ -110,6 +111,8 @@ let graph = null;
 let contextTarget = null;
 let clipboard = [];
 const PNG_EXPORT_DEFAULT_RATIO = Math.max(window.devicePixelRatio || 1, 2);
+const CONTAINER_DEFAULT_PADDING = 34;
+const CONTAINER_HEADER_HEIGHT = 30;
 
 const NODE_TYPES = {
   'process':      { width: 120, height: 50, body: { fill: '#fff', stroke: '#4096ff', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
@@ -120,12 +123,27 @@ const NODE_TYPES = {
   'database':     { width: 120, height: 50, body: { fill: '#fff', stroke: '#13c2c2', strokeWidth: 2, rx: 4, ry: 4 }, labelFill: '#1a1a1a' },
   'success':      { width: 120, height: 50, body: { fill: '#fff', stroke: '#52c41a', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
   'error':        { width: 120, height: 50, body: { fill: '#fff', stroke: '#ff4d4f', strokeWidth: 2, rx: 8, ry: 8 }, labelFill: '#1a1a1a' },
+  'container':    { width: 320, height: 220, body: { fill: '#f6f8fb', stroke: '#8c8c8c', strokeWidth: 2, rx: 10, ry: 10, strokeDasharray: '8 4' }, labelFill: '#42526e' },
 };
 
 const DEFAULT_LABELS = {
   'process': '处理', 'decision': '判断?', 'terminal': '开始', 'terminal-end': '结束',
   'service': '服务', 'database': '数据库', 'success': '成功', 'error': '失败',
+  'container': '容器',
 };
+
+function readNumber(value, fallback) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function parseChildren(value) {
+  return Array.isArray(value) ? value.map((id) => String(id)).filter(Boolean) : [];
+}
+
+function isContainerNode(node) {
+  return node?.getData?.()?.diagramType === 'container';
+}
 
 // ============================================================
 // Auto-fit node size based on label content
@@ -157,13 +175,16 @@ function calcNodeSize(label, type) {
 // ============================================================
 // Build node config for X6 addNode
 // ============================================================
-function buildNodeConfig(id, type, label, x, y) {
-  const t = NODE_TYPES[type] || NODE_TYPES['process'];
-  let shape = 'rect';
-  if (type === 'decision') shape = 'polygon';
-  else if (type === 'terminal' || type === 'terminal-end') shape = 'ellipse';
+function buildNodeConfig(id, type, label, x, y, options = {}) {
+  const resolvedType = NODE_TYPES[type] ? type : 'process';
+  if (resolvedType === 'container') return buildContainerConfig(id, label, x, y, options);
 
-  const sz = calcNodeSize(label, type);
+  const t = NODE_TYPES[resolvedType];
+  let shape = 'rect';
+  if (resolvedType === 'decision') shape = 'polygon';
+  else if (resolvedType === 'terminal' || resolvedType === 'terminal-end') shape = 'ellipse';
+
+  const sz = calcNodeSize(label, resolvedType);
 
   const config = {
     id: id,
@@ -191,12 +212,12 @@ function buildNodeConfig(id, type, label, x, y) {
         { group: 'right', id: 'pr' },
       ],
     },
-    data: { diagramType: type },
+    data: { diagramType: resolvedType },
   };
-  if (type === 'decision') {
+  if (resolvedType === 'decision') {
     config.attrs.body.refPoints = '0.5,0 1,0.5 0.5,1 0,0.5';
   }
-  if (type === 'database') {
+  if (resolvedType === 'database') {
     // Custom cylinder markup for database
     config.shape = 'rect';
     config.markup = [
@@ -211,6 +232,39 @@ function buildNodeConfig(id, type, label, x, y) {
     config.attrs.body.ry = 4;
   }
   return config;
+}
+
+function buildContainerConfig(id, label, x, y, options = {}) {
+  const t = NODE_TYPES['container'];
+  const stroke = normalizeDrawioColor(options.color || options.stroke || t.body.stroke, t.body.stroke);
+  const fill = normalizeDrawioColor(options.fill || t.body.fill, t.body.fill);
+  const headerFill = normalizeDrawioColor(options.headerFill || '#eef4ff', '#eef4ff');
+  const width = Math.max(160, readNumber(options.width, t.width));
+  const height = Math.max(120, readNumber(options.height, t.height));
+  const padding = Math.max(8, readNumber(options.padding, CONTAINER_DEFAULT_PADDING));
+  const children = parseChildren(options.children);
+
+  return {
+    id: id,
+    shape: 'rect',
+    x: x || 0,
+    y: y || 0,
+    width: width,
+    height: height,
+    label: label || '',
+    markup: [
+      { tagName: 'rect', selector: 'body' },
+      { tagName: 'rect', selector: 'header' },
+      { tagName: 'text', selector: 'label' },
+    ],
+    attrs: {
+      body: { ...t.body, fill: fill, stroke: stroke },
+      header: { refWidth: '100%', height: CONTAINER_HEADER_HEIGHT, fill: headerFill, stroke: 'none', rx: t.body.rx, ry: t.body.ry },
+      label: { refX: 12, refY: 16, textAnchor: 'start', textVerticalAnchor: 'middle', fontSize: 13, fontWeight: 600, fill: t.labelFill },
+    },
+    data: { diagramType: 'container', children: children, padding: padding, headerFill: headerFill },
+    zIndex: 0,
+  };
 }
 
 // ============================================================
@@ -412,9 +466,12 @@ function fitView() { if (graph.getNodes().length > 0) graph.zoomToFit({ padding:
 // Auto layout with dagre
 // ============================================================
 function autoLayout() {
-  const nodes = graph.getNodes();
+  const nodes = graph.getNodes().filter(n => !isContainerNode(n));
   const edges = graph.getEdges();
-  if (nodes.length === 0) return;
+  if (nodes.length === 0) {
+    syncContainers();
+    return;
+  }
   console.log('[diagram] autoLayout:', nodes.length, 'nodes,', edges.length, 'edges');
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: state.direction || 'TB', nodesep: 100, ranksep: 90, marginx: 60, marginy: 60, align: 'DL' });
@@ -426,7 +483,9 @@ function autoLayout() {
   edges.forEach(e => {
     const src = e.getSourceCellId();
     const tgt = e.getTargetCellId();
-    if (src && tgt) g.setEdge(src, tgt);
+    const srcNode = graph.getCellById(src);
+    const tgtNode = graph.getCellById(tgt);
+    if (src && tgt && !isContainerNode(srcNode) && !isContainerNode(tgtNode)) g.setEdge(src, tgt);
   });
   dagre.layout(g);
   const isVertical = (state.direction || 'TB') === 'TB' || state.direction === 'BT';
@@ -463,6 +522,7 @@ function autoLayout() {
     if (pos) n.position(pos.x - pos.width / 2, pos.y - pos.height / 2);
   });
 
+  syncContainers();
   assignEdgePorts();
 
   graph.stopBatch('layout');
@@ -479,6 +539,7 @@ function assignEdgePorts() {
     const srcNode = graph.getCellById(e.getSourceCellId());
     const tgtNode = graph.getCellById(e.getTargetCellId());
     if (!srcNode || !tgtNode) return;
+    if (isContainerNode(srcNode) || isContainerNode(tgtNode)) return;
     const sp = srcNode.getPosition(), ss = srcNode.getSize();
     const tp = tgtNode.getPosition(), ts = tgtNode.getSize();
     const scx = sp.x + ss.width / 2, scy = sp.y + ss.height / 2;
@@ -528,6 +589,38 @@ function assignEdgePorts() {
   });
 }
 
+function syncContainers() {
+  const containers = graph.getNodes().filter(isContainerNode);
+  containers.forEach(container => {
+    const data = container.getData() || {};
+    const children = parseChildren(data.children);
+    if (children.length > 0) {
+      const childNodes = children
+        .map(id => graph.getCellById(id))
+        .filter(node => node && node.isNode?.() && !isContainerNode(node));
+      if (childNodes.length > 0) {
+        const padding = Math.max(8, readNumber(data.padding, CONTAINER_DEFAULT_PADDING));
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        childNodes.forEach(node => {
+          const pos = node.getPosition();
+          const size = node.getSize();
+          minX = Math.min(minX, pos.x);
+          minY = Math.min(minY, pos.y);
+          maxX = Math.max(maxX, pos.x + size.width);
+          maxY = Math.max(maxY, pos.y + size.height);
+        });
+        const nextX = Math.round(minX - padding);
+        const nextY = Math.round(minY - padding - CONTAINER_HEADER_HEIGHT);
+        const nextWidth = Math.round(maxX - minX + padding * 2);
+        const nextHeight = Math.round(maxY - minY + padding * 2 + CONTAINER_HEADER_HEIGHT);
+        container.position(nextX, nextY);
+        container.resize(nextWidth, nextHeight);
+      }
+    }
+    container.toBack();
+  });
+}
+
 function saveNodePositions() {
   if (!_sseSession) return;
   const positions = {};
@@ -553,8 +646,8 @@ function setupNodePanel() {
       const area = graph.getContentArea();
       const cx = (area.x || 200) + Math.random() * 100;
       const cy = (area.y || 200) + Math.random() * 100;
-      const config = buildNodeConfig('n_' + Date.now(), type, label, cx, cy);
-      graph.addNode(config);
+      const node = graph.addNode(buildNodeConfig('n_' + Date.now(), type, label, cx, cy));
+      if (type === 'container') node.toBack();
       console.log('[diagram] added node from panel:', type);
     });
   });
@@ -586,8 +679,9 @@ function cmDuplicate() {
   const size = contextTarget.getSize();
   const type = contextTarget.getData()?.diagramType || 'process';
   const label = (contextTarget.attr('label/text') || '') + ' (副本)';
-  const config = buildNodeConfig('n_' + Date.now(), type, label, pos.x + 30, pos.y + 30);
-  graph.addNode(config);
+  const config = buildNodeConfig('n_' + Date.now(), type, label, pos.x + 30, pos.y + 30, { width: size.width, height: size.height });
+  const node = graph.addNode(config);
+  if (type === 'container') node.toBack();
   hideContextMenu();
 }
 function cmDelete() {
@@ -660,13 +754,13 @@ function connectSSE() {
         console.log('[diagram] restoring', cmds.length, 'commands');
         state._isRestoring = true;
         // Check if any node has saved positions (user has dragged before)
-        const hasPositions = cmds.some(c => c.cmd === 'node' && c._x != null);
+        const hasPositions = cmds.some(c => (c.cmd === 'node' || c.cmd === 'container') && c._x != null);
         cmds.forEach(cmd => handleCommand(cmd));
         state._isRestoring = false;
         _stateRestored = true;
         // Only auto-layout if no saved positions exist
         if (graph.getNodes().length > 0 && !hasPositions) autoLayout();
-        else if (graph.getNodes().length > 0) { assignEdgePorts(); fitView(); }
+        else if (graph.getNodes().length > 0) { syncContainers(); assignEdgePorts(); fitView(); }
       })
       .catch(err => console.error('[diagram] restore error:', err));
   }
@@ -771,13 +865,35 @@ function handleCommand(cmd) {
         if (existing) {
           if (cmd.label) existing.attr('label/text', cmd.label);
           if (cmd._x != null) existing.position(cmd._x, cmd._y);
+          if (type === 'container') {
+            const data = existing.getData() || {};
+            existing.setData({
+              ...data,
+              diagramType: 'container',
+              children: cmd.children != null ? parseChildren(cmd.children) : parseChildren(data.children),
+              padding: cmd.padding != null ? Math.max(8, readNumber(cmd.padding, CONTAINER_DEFAULT_PADDING)) : data.padding,
+            });
+            if (cmd.width != null || cmd.height != null) {
+              const size = existing.getSize();
+              existing.resize(
+                Math.max(160, readNumber(cmd.width, size.width)),
+                Math.max(120, readNumber(cmd.height, size.height)),
+              );
+            }
+          }
         } else {
           const nx = cmd._x != null ? cmd._x : (cmd.x || 0);
           const ny = cmd._x != null ? cmd._y : (cmd.y || 0);
-          const config = buildNodeConfig(cmd.id, type, cmd.label || '', nx, ny);
-          graph.addNode(config);
+          const config = buildNodeConfig(cmd.id, type, cmd.label || '', nx, ny, cmd);
+          const node = graph.addNode(config);
+          if (type === 'container') node.toBack();
         }
-        if (!state._isRestoring) debounceLayout();
+        if (type === 'container') syncContainers();
+        else if (!state._isRestoring) debounceLayout();
+        break;
+      }
+      case 'container': {
+        handleCommand({ ...cmd, cmd: 'node', type: 'container' });
         break;
       }
       case 'edge': {
@@ -808,6 +924,7 @@ function handleCommand(cmd) {
         break;
       case 'batch':
         if (cmd.nodes) cmd.nodes.forEach(n => handleCommand({ cmd: 'node', ...n }));
+        if (cmd.containers) cmd.containers.forEach(c => handleCommand({ cmd: 'container', ...c }));
         if (cmd.edges) cmd.edges.forEach(e => handleCommand({ cmd: 'edge', ...e }));
         autoLayout();
         break;
@@ -950,8 +1067,19 @@ function getDrawioEdgeStyle(edge) {
   return `edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=${strokeColor};${widthStyle}endArrow=classic;endFill=1;`;
 }
 
+function getDrawioNodeStyle(node, fallbackStyles) {
+  const type = node.getData()?.diagramType || 'process';
+  if (type === 'container') {
+    const fillColor = normalizeDrawioColor(node.attr('body/fill'), '#f6f8fb');
+    const strokeColor = normalizeDrawioColor(node.attr('body/stroke'), '#8c8c8c');
+    const headerFill = normalizeDrawioColor(node.attr('header/fill') || node.getData()?.headerFill, '#eef4ff');
+    return `swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=${fillColor};swimlaneFillColor=${headerFill};strokeColor=${strokeColor};dashed=1;startSize=${CONTAINER_HEADER_HEIGHT};`;
+  }
+  return fallbackStyles[type] || 'rounded=1;whiteSpace=wrap;html=1;';
+}
+
 function generateDrawioXml() {
-  const nodes = graph.getNodes();
+  const nodes = graph.getNodes().sort((a, b) => Number(isContainerNode(b)) - Number(isContainerNode(a)));
   if (nodes.length === 0) return null;
   const drawioStyles = {
     'terminal': 'ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;',
@@ -969,8 +1097,7 @@ function generateDrawioXml() {
   nodes.forEach(n => {
     const mid = cellId++;
     idMap[n.id] = mid;
-    const type = n.getData()?.diagramType || 'process';
-    const style = drawioStyles[type] || 'rounded=1;whiteSpace=wrap;html=1;';
+    const style = getDrawioNodeStyle(n, drawioStyles);
     const pos = n.getPosition();
     const size = n.getSize();
     const label = escXmlAttr(n.attr('label/text') || n.attr('text/text') || '');

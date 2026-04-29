@@ -111,8 +111,31 @@ curl -s '127.0.0.1:6100/cmd?s=my-diagram' -d '{"cmd":"layout"}'
 | `database` | Cyan-bordered rect with thick top bar | Database/storage |
 | `success` | Green-bordered rect | Success state |
 | `error` | Red-bordered rect | Error/failure state |
+| `container` | Dashed background frame with header | Group related nodes |
 
 Service nodes support an `icon` field: `{"cmd":"node","id":"s1","label":"API Gateway","type":"service","icon":"🔀"}`
+
+## Containers
+
+Use containers to visually group related nodes. Send the child nodes first, then the container command with a `children` array so it can auto-size around them:
+
+```bash
+curl -s "127.0.0.1:6100/cmd?s=$S" -d '{"cmd":"container","id":"frontend","label":"前端","children":["login","dashboard"],"color":"blue"}'
+```
+
+Container fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Container ID |
+| `label` | No | Header label |
+| `children` | No | Node IDs to wrap; container auto-sizes around them |
+| `padding` | No | Extra space around children; default `34` |
+| `color` | No | Border color: named color or hex |
+| `fill` | No | Body fill color; hex/rgb supported |
+| `width` / `height` | No | Manual size when `children` is omitted |
+
+You can also create a container with `{"cmd":"node","type":"container",...}` for compatibility with node-based command generation.
 
 ## Edge Options
 
@@ -135,6 +158,7 @@ Service nodes support an `icon` field: `{"cmd":"node","id":"s1","label":"API Gat
 | `title` | Change title | `{"cmd":"title","text":"New Title"}` |
 | `remove` | Remove a node | `{"cmd":"remove","id":"n1"}` |
 | `batch` | Add multiple at once | `{"cmd":"batch","nodes":[...],"edges":[...]}` |
+| `container` | Add/update a container frame | `{"cmd":"container","id":"g1","label":"Group","children":["n1","n2"]}` |
 | `export` | Trigger browser download | `{"cmd":"export","format":"png"}` (png/svg/json/drawio) |
 
 ### Server-Side Export (Save to Disk)
@@ -179,7 +203,7 @@ PNG export defaults to a high-DPI ratio so output is sharper on Retina/high-dens
 5. **Use descriptive IDs** — like `start`, `login`, `validate` instead of `n1`, `n2`, `n3`.
 6. **Auto-layout handles positioning** — do NOT specify `x` or `y` coordinates. Dagre calculates optimal positions.
 7. **Send init first** — always start with an `init` command to clear previous state and set the title.
-8. **Add all nodes before edges** — this produces better layout results. Send all node commands first, then all edge commands, then optionally a `layout` command.
+8. **Add all nodes before edges** — this produces better layout results. Send all node commands first, then container commands, then all edge commands, then optionally a `layout` command.
 9. **Execution order for NEW sessions**: Bash 1: start server + open browser → Bash 2: init + nodes + edges. Two separate tool calls, NOT one. For EXISTING sessions (browser already open): just send init + nodes + edges directly in one Bash call.
 
 ## Token Efficiency
